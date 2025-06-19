@@ -1,0 +1,32 @@
+# Virtual environment
+memvid-env/
+venv/
+.venv/
+
+# Proprietary content
+podcast_transcripts/
+
+# Output files
+output/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+*.temp
