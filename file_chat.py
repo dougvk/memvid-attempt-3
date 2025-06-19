@@ -167,6 +167,17 @@ def create_memory_from_files(files, output_dir, memory_name, **config_overrides)
     # Apply config overrides to default config
     config = get_default_config()
     workers = config_overrides.pop('workers', 1)  # Extract workers, default to 1
+    metadata_file = config_overrides.pop('metadata_file', None)  # Extract metadata_file
+    
+    # Load metadata if provided
+    metadata_lookup = {}
+    if metadata_file and Path(metadata_file).exists():
+        try:
+            with open(metadata_file, 'r') as f:
+                metadata_lookup = json.load(f)
+            print(f"📋 Loaded metadata from: {metadata_file}")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not load metadata file: {e}")
     
     for key, value in config_overrides.items():
         if key in ['chunk_size', 'overlap']:
@@ -196,27 +207,52 @@ def create_memory_from_files(files, output_dir, memory_name, **config_overrides)
     
     processed_count = 0
     skipped_count = 0
+    file_ranges = []  # Track which chunks belong to which files
     
     if workers > 1:
         print(f"Using {workers} parallel workers...")
         
-        # Process files in parallel
+        # Sort files to ensure deterministic chunk ordering
+        files = sorted(files)
+        
+        # Process files in parallel but maintain order
         with ThreadPoolExecutor(max_workers=workers) as executor:
             # Submit all tasks
             futures = {executor.submit(process_single_file, file, chunk_size, overlap): file 
                       for file in files}
             
-            # Process results as they complete
+            # Collect results
+            results = {}
             iterator = tqdm(as_completed(futures), total=len(files), desc="Processing files") if use_progress else as_completed(futures)
             
             for future in iterator:
+                file = futures[future]
                 filename, chunks, error = future.result()
                 if error:
                     print(f"Warning: Could not process {filename}: {error}")
-                    skipped_count += 1
+                    results[file] = (filename, [], error)
                 else:
-                    encoder.add_chunks(chunks)
-                    processed_count += 1
+                    results[file] = (filename, chunks, None)
+            
+            # Add chunks in deterministic order and track ranges
+            for file in files:
+                if file in results:
+                    filename, chunks, error = results[file]
+                    if not error and chunks:
+                        start_chunk = len(encoder.chunks)
+                        encoder.add_chunks(chunks)
+                        end_chunk = len(encoder.chunks) - 1
+                        
+                        file_range = {
+                            "file": filename,
+                            "start_chunk": start_chunk,
+                            "end_chunk": end_chunk,
+                            "metadata": metadata_lookup.get(filename, {})
+                        }
+                        file_ranges.append(file_range)
+                        processed_count += 1
+                    elif error:
+                        skipped_count += 1
     else:
         # Original sequential processing
         file_iterator = tqdm(files, desc="Processing files") if use_progress else files
@@ -227,6 +263,8 @@ def create_memory_from_files(files, output_dir, memory_name, **config_overrides)
                 print(f"Processing: {file_path.name}")
 
             try:
+                start_chunk = len(encoder.chunks)  # Track start position
+                
                 if file_path.suffix.lower() == '.pdf':
                     encoder.add_pdf(str(file_path), chunk_size, overlap)
                 elif file_path.suffix.lower() == '.epub':
@@ -257,6 +295,17 @@ def create_memory_from_files(files, output_dir, memory_name, **config_overrides)
                         if content.strip():
                             encoder.add_text(content, chunk_size, overlap)
 
+                # Track end position and create range entry
+                end_chunk = len(encoder.chunks) - 1
+                if end_chunk >= start_chunk:  # Only if chunks were added
+                    file_range = {
+                        "file": file_path.name,
+                        "start_chunk": start_chunk,
+                        "end_chunk": end_chunk,
+                        "metadata": metadata_lookup.get(file_path.name, {})
+                    }
+                    file_ranges.append(file_range)
+                
                 processed_count += 1
 
             except Exception as e:
@@ -319,7 +368,8 @@ def create_memory_from_files(files, output_dir, memory_name, **config_overrides)
             'encoding_time_seconds': encoding_time,
             'total_time_seconds': total_time
         },
-        'build_stats': build_stats
+        'build_stats': build_stats,
+        'file_ranges': file_ranges  # Add file-to-chunk mapping
     }
 
     metadata_path = output_dir / f"{memory_name}_metadata.json"
@@ -554,6 +604,12 @@ def main():
         '--chat',
         action='store_true',
         help='Start interactive chat session after creating memory'
+    )
+    
+    # Metadata options
+    parser.add_argument(
+        '--metadata-file',
+        help='JSON file containing additional metadata for source files'
     )
 
     args = parser.parse_args()

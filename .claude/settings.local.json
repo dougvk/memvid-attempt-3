@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(chmod:*)",
+      "Bash(ls:*)",
+      "Bash(ffprobe:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(/Users/douglasvonkohorn/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-darwin/rg \"n_workers\" /Users/douglasvonkohorn/Documents/GitHub/memvid-attempt-3/memvid-env/lib/python3.13/site-packages/memvid/)",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)",
+      "Bash(git add:*)",
+      "Bash(git reset:*)",
+      "Bash(git commit:*)",
+      "Bash(rg:*)",
+      "Bash(/Users/douglasvonkohorn/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-darwin/rg -n \"(update|append|extend|add_to_existing)\" /Users/douglasvonkohorn/Documents/GitHub/memvid-attempt-3/memvid-env/lib/python3.13/site-packages/memvid/ --type py)"
+    ],
+    "deny": []
+  }
+}
