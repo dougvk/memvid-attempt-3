@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 import uvicorn
@@ -241,6 +241,19 @@ def create_app(test_mode: bool = False, index_base: Optional[str] = None) -> Fas
             query=request.query,
             results=[SearchResult(**r) for r in results]
         )
+    
+    @app.get("/query", response_model=SearchResponse)
+    async def query(
+        search: str = Query(..., min_length=1, description="Search query"),
+        top_k: int = Query(5, ge=1, description="Number of results")
+    ):
+        """GET endpoint for search - compatible with frontend expectations"""
+        # Create request object and call the search endpoint function
+        request = SearchRequest(query=search, top_k=top_k)
+        return await search_endpoint(request)
+    
+    # Rename the POST endpoint function to avoid naming conflict
+    search_endpoint = search
     
     return app
 

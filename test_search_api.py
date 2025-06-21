@@ -295,6 +295,30 @@ class TestAPIEndpoints:
         headers_lower = {k.lower(): v for k, v in response.headers.items()}
         # Just verify the endpoint works - CORS is tested in integration
         assert response.status_code == 200
+    
+    def test_query_endpoint_exists(self, client):
+        """Test that GET /query endpoint exists and works"""
+        response = client.get("/query?search=test&top_k=5")
+        assert response.status_code == 200
+        data = response.json()
+        assert "query" in data
+        assert "results" in data
+        assert data["query"] == "test"
+        assert isinstance(data["results"], list)
+    
+    def test_query_endpoint_validation(self, client):
+        """Test GET /query endpoint parameter validation"""
+        # Missing search parameter
+        response = client.get("/query")
+        assert response.status_code == 422
+        
+        # Empty search parameter
+        response = client.get("/query?search=")
+        assert response.status_code == 422
+        
+        # Invalid top_k
+        response = client.get("/query?search=test&top_k=0")
+        assert response.status_code == 422
 
 
 if __name__ == "__main__":
