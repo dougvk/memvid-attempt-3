@@ -190,7 +190,7 @@ find /home/podcast -name "index_backup_*.tar.gz" -mtime +7 -delete
 - **API URL**: https://your-subdomain.your-domain.com
 - **Health Check**: https://your-subdomain.your-domain.com/health
 - **Search**: https://your-subdomain.your-domain.com/query?search=YOUR_QUERY
-- **Server**: DigitalOcean Droplet at your-vps-ip
+- **Server**: Your VPS provider
 
 ## Notes
 
