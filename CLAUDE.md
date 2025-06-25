@@ -138,6 +138,60 @@ ssh user@vps-ip 'sudo journalctl -u podcast-api -f'
 
 See DEPLOYMENT.md for full VPS setup instructions.
 
+## Regular Maintenance Tasks
+
+### When You Add New Episodes
+
+1. **On your local machine:**
+   ```bash
+   # Re-index with new episodes
+   python3 file_chat.py --input-dir podcast_transcripts/ --chunk-size 2048 --overlap 307 --workers 8 --memory-name podcasts_2048_chunk
+   
+   # Upload to VPS
+   ./upload.sh
+   ```
+
+2. **The upload script will ask to restart the service**
+
+### Check API Status
+```bash
+# Check service status
+ssh podcast@your-vps-ip 'sudo systemctl status podcast-api'
+
+# View recent logs
+ssh podcast@your-vps-ip 'sudo journalctl -u podcast-api -n 50'
+```
+
+## Security Considerations
+
+- The API is open to the internet (CORS allows all origins)
+- If you need authentication later, you can add API keys
+- Monitor your DigitalOcean bandwidth usage
+- Regular security updates: `sudo apt update && sudo apt upgrade`
+
+## Backup Strategy
+
+Consider backing up your index files:
+```bash
+# Create a backup script on the VPS
+nano /home/podcast/backup_index.sh
+```
+
+Add:
+```bash
+#!/bin/bash
+tar -czf /home/podcast/index_backup_$(date +%Y%m%d).tar.gz /opt/podcast-api/output/
+# Keep only last 7 backups
+find /home/podcast -name "index_backup_*.tar.gz" -mtime +7 -delete
+```
+
+## Production API URLs
+
+- **API URL**: https://your-subdomain.your-domain.com
+- **Health Check**: https://your-subdomain.your-domain.com/health
+- **Search**: https://your-subdomain.your-domain.com/query?search=YOUR_QUERY
+- **Server**: DigitalOcean Droplet at your-vps-ip
+
 ## Notes
 
 - The podcast transcripts are proprietary and should never be committed to git
