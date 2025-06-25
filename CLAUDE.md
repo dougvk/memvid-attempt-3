@@ -107,6 +107,37 @@ This repository serves two purposes:
 RSS Feeds → RSS Ingest → MP3 Processor → Transcripts → Backend (Tagging) → memvid-attempt-3 (Indexing) → memvid-attempt-3 (API) → Frontend
 ```
 
+## VPS Deployment
+
+### Upload Index to VPS
+```bash
+# Edit upload.sh to set your VPS details, then:
+./upload.sh
+
+# Or manually:
+rsync -avz output/podcasts_2048_chunk* user@vps-ip:/opt/podcast-api/output/
+```
+
+### Service Management
+```bash
+# Restart API service
+ssh user@vps-ip 'sudo systemctl restart podcast-api'
+
+# Check service status
+ssh user@vps-ip 'sudo systemctl status podcast-api'
+
+# View logs
+ssh user@vps-ip 'sudo journalctl -u podcast-api -f'
+```
+
+### Resource Usage
+- **Memory**: ~360MB when loaded
+- **CPU**: <5% during queries
+- **Query time**: 100-170ms
+- **Suitable for**: $5-6/month VPS
+
+See DEPLOYMENT.md for full VPS setup instructions.
+
 ## Notes
 
 - The podcast transcripts are proprietary and should never be committed to git
