@@ -32,7 +32,22 @@ def load_episodes():
     unprocessed = []
     for episode in all_episodes:
         if episode['guid'] not in processed_guids and episode.get('audio_url'):
-            unprocessed.append(episode)
+            # Double-check that transcript doesn't already exist
+            guid = episode['guid']
+            title = episode['title']
+            clean_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
+            
+            # Check for existing transcript file
+            possible_files = [
+                TRANSCRIPTS_DIR / f"{guid}_{clean_title}.txt",
+                # Also check for files that might have been created with different naming
+            ]
+            
+            transcript_exists = any(f.exists() for f in possible_files)
+            if not transcript_exists:
+                unprocessed.append(episode)
+            else:
+                print(f"Skipping {title[:50]}... (transcript already exists)")
     
     return unprocessed
 
