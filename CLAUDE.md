@@ -85,6 +85,20 @@ python3 rss_manager.py export    # Export to JSON
 - `clean` command uses OpenAI to remove promotional content
 - `fix` command automatically corrects validation errors
 
+## Podcast Transcription
+
+Transcribe podcast episodes using whisper.cpp:
+
+```bash
+# Uses export.json as source of episodes
+python3 transcribe.py
+```
+
+- Continues from where previous transcriptions left off (742 completed)
+- Downloads MP3 → Transcribes with whisper.cpp → Saves to `transcripts/`
+- Progress tracked in `processed_transcripts.json`
+- Requires whisper.cpp installed at `/Users/douglasvonkohorn/whisper.cpp/`
+
 ## Project Structure
 
 - `file_chat.py` - Script for creating memvid indexes from documents

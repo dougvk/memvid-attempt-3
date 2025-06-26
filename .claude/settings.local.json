@@ -19,7 +19,10 @@
       "Bash(/Users/douglasvonkohorn/.npm-global/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-darwin/rg -n \"(update|append|extend|add_to_existing)\" /Users/douglasvonkohorn/Documents/GitHub/memvid-attempt-3/memvid-env/lib/python3.13/site-packages/memvid/ --type py)",
       "Bash(find:*)",
       "Bash(env)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(jq:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)"
     ],
     "deny": []
   }

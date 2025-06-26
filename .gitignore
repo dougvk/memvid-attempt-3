@@ -5,6 +5,7 @@ venv/
 
 # Proprietary content
 podcast_transcripts/
+transcripts/
 
 # Output files
 output/
