@@ -120,11 +120,18 @@ def ingest() -> None:
         description = item.find('description')
         pub_date = item.find('pubDate')
         
+        # Get audio URL from enclosure
+        audio_url = None
+        enclosure = item.find('enclosure')
+        if enclosure is not None and 'url' in enclosure.attrib:
+            audio_url = enclosure.attrib['url']
+        
         episodes[guid] = {
             "guid": guid,
             "title": title.text if title is not None else "",
             "description": description.text if description is not None else "",
             "published_date": pub_date.text if pub_date is not None else "",
+            "audio_url": audio_url,
             "cleaned_description": None,
             "tags": None,
             "ingested_at": datetime.now().isoformat()
@@ -559,6 +566,7 @@ def export() -> None:
                 "guid": episode["guid"],
                 "title": episode["title"],
                 "published_date": episode["published_date"],
+                "audio_url": episode.get("audio_url"),
                 "tags": episode["tags"],
                 "cleaned_description": episode["cleaned_description"]
             })
