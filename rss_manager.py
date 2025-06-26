@@ -157,7 +157,8 @@ def clean() -> None:
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
     
     cleaned_count = 0
-    for guid, episode in episodes.items():
+    for guid in episodes:
+        episode = episodes[guid]
         # Skip if already cleaned
         if episode.get("cleaned_description") is not None:
             continue
@@ -194,16 +195,24 @@ def clean() -> None:
             episode["cleaned_description"] = cleaned_text
             episode["cleaned_at"] = datetime.now().isoformat()
             cleaned_count += 1
+            print(f"  ✓ Successfully cleaned ({len(cleaned_text)} chars)")
+            
+            # Save after each successful cleaning
+            state["episodes"] = episodes
+            save_state(state)
             
         except Exception as e:
-            print(f"Error cleaning episode: {e}")
+            print(f"Error cleaning episode '{title[:30]}...': {e}")
             # Fall back to HTML-cleaned version
             episode["cleaned_description"] = text
             episode["cleaned_at"] = datetime.now().isoformat()
             cleaned_count += 1
+            
+            # Save even on fallback
+            state["episodes"] = episodes
+            save_state(state)
     
-    save_state(state)
-    print(f"Cleaned {cleaned_count} episodes")
+    print(f"Total cleaned: {cleaned_count} episodes")
 
 
 def construct_prompt(title: str, description: str) -> str:
@@ -311,12 +320,15 @@ def tag() -> None:
                 episode["tagged_at"] = datetime.now().isoformat()
                 tagged_count += 1
                 
+                # Save after each successful tagging
+                state["episodes"] = episodes
+                save_state(state)
+                
         except Exception as e:
             print(f"Error tagging episode: {e}")
             continue
     
-    save_state(state)
-    print(f"Tagged {tagged_count} episodes")
+    print(f"Total tagged: {tagged_count} episodes")
 
 
 def validate() -> None:
