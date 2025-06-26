@@ -74,12 +74,16 @@ python3 rss_manager.py ingest    # Fetch episodes from RSS feed
 python3 rss_manager.py clean     # Clean descriptions with OpenAI
 python3 rss_manager.py tag       # Tag episodes with taxonomy
 python3 rss_manager.py validate  # Check tags are valid
+python3 rss_manager.py fix       # Auto-fix validation errors
 python3 rss_manager.py export    # Export to JSON
 ```
 
 - Uses OpenAI model: **gpt-4o-mini**
 - State stored in: `state.json`
 - Non-destructive: Re-running commands only processes new/unprocessed episodes
+- Progress saved after each episode (resilient to interruptions)
+- `clean` command uses OpenAI to remove promotional content
+- `fix` command automatically corrects validation errors
 
 ## Project Structure
 
