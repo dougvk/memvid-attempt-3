@@ -432,7 +432,8 @@ def load_existing_memory(memory_path):
         if not video_path:
             raise ValueError(f"No video file found with base name: {memory_path}")
 
-        index_path = base_path.with_suffix('_index.json')
+        # Handle the case where the base path might already include timestamp
+        index_path = base_path.parent / f"{base_path.stem}_index.json"
 
     # Validate files exist and are readable
     if not video_path.exists():

@@ -10,6 +10,10 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configuration from environment
 RSS_FEED_URL = os.getenv("RSS_FEED_URL")
