@@ -57,11 +57,36 @@ curl -X POST http://localhost:8000/search \
 curl "http://localhost:8000/query?search=murder%20of%20richard%20ii&top_k=3"
 ```
 
+## RSS Manager
+
+Minimal RSS feed manager for podcast episodes:
+
+```bash
+# Set environment variables (or create .env file)
+export RSS_FEED_URL="https://your-podcast-feed.com/rss"
+export OPENAI_API_KEY="sk-your-key"
+
+# Activate virtual environment
+source memvid-env/bin/activate
+
+# Commands (run in order)
+python3 rss_manager.py ingest    # Fetch episodes from RSS feed
+python3 rss_manager.py clean     # Clean descriptions with OpenAI
+python3 rss_manager.py tag       # Tag episodes with taxonomy
+python3 rss_manager.py validate  # Check tags are valid
+python3 rss_manager.py export    # Export to JSON
+```
+
+- Uses OpenAI model: **gpt-4o-mini**
+- State stored in: `state.json`
+- Non-destructive: Re-running commands only processes new/unprocessed episodes
+
 ## Project Structure
 
 - `file_chat.py` - Script for creating memvid indexes from documents
 - `search_api.py` - FastAPI server for searching indexed content
 - `test_search_api.py` - Unit tests for the search API
+- `rss_manager.py` - Minimal RSS feed processor with OpenAI tagging
 - `podcast_transcripts/` - Directory containing podcast transcript files (proprietary, not in git)
 - `output/` - Directory containing generated memvid indexes
 
