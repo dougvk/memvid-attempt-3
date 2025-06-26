@@ -319,6 +319,76 @@ def tag() -> None:
     print(f"Tagged {tagged_count} episodes")
 
 
+def validate() -> None:
+    """Validate tags against taxonomy rules."""
+    state = load_state()
+    episodes = state.get("episodes", {})
+    
+    valid_count = 0
+    invalid_count = 0
+    errors = []
+    
+    for guid, episode in episodes.items():
+        tags = episode.get("tags")
+        if tags is None:
+            continue
+        
+        title = episode.get("title", "")[:60]
+        episode_errors = []
+        
+        # Check required fields
+        required = {"Format", "Theme", "Track", "episode_number"}
+        missing = required - set(tags.keys())
+        if missing:
+            episode_errors.append(f"Missing fields: {missing}")
+        
+        # Validate Format
+        if "Format" in tags:
+            formats = tags["Format"]
+            if not isinstance(formats, list):
+                episode_errors.append("Format must be a list")
+            elif "RIHC Series" in formats and "Series Episodes" not in formats:
+                episode_errors.append("RIHC Series requires Series Episodes")
+            elif "RIHC Series" not in formats and len(formats) != 1:
+                episode_errors.append("Must have exactly one Format tag")
+            else:
+                invalid_formats = set(formats) - set(TAXONOMY["Format"])
+                if invalid_formats:
+                    episode_errors.append(f"Invalid Format tags: {invalid_formats}")
+        
+        # Validate Theme and Track
+        for category in ["Theme", "Track"]:
+            if category in tags:
+                cat_tags = tags[category]
+                if not isinstance(cat_tags, list):
+                    episode_errors.append(f"{category} must be a list")
+                else:
+                    invalid_tags = set(cat_tags) - set(TAXONOMY[category])
+                    if invalid_tags:
+                        episode_errors.append(f"Invalid {category} tags: {invalid_tags}")
+        
+        # Validate episode_number
+        if "episode_number" in tags:
+            num = tags["episode_number"]
+            if num is not None and not isinstance(num, int):
+                episode_errors.append("episode_number must be int or null")
+        
+        if episode_errors:
+            errors.append(f"{title}: {'; '.join(episode_errors)}")
+            invalid_count += 1
+        else:
+            valid_count += 1
+    
+    print(f"Valid episodes: {valid_count}")
+    print(f"Invalid episodes: {invalid_count}")
+    if errors:
+        print("\nValidation errors:")
+        for error in errors[:10]:  # Show first 10 errors
+            print(f"  - {error}")
+        if len(errors) > 10:
+            print(f"  ... and {len(errors) - 10} more")
+
+
 def export() -> None:
     """Export tagged episodes to JSON."""
     state = load_state()
@@ -350,7 +420,7 @@ def export() -> None:
 def main():
     """Main entry point."""
     if len(sys.argv) != 2:
-        print("Usage: python rss_manager.py [ingest|clean|tag|export]")
+        print("Usage: python rss_manager.py [ingest|clean|tag|validate|export]")
         sys.exit(1)
     
     command = sys.argv[1]
@@ -361,11 +431,13 @@ def main():
         clean()
     elif command == "tag":
         tag()
+    elif command == "validate":
+        validate()
     elif command == "export":
         export()
     else:
         print(f"Unknown command: {command}")
-        print("Valid commands: ingest, clean, tag, export")
+        print("Valid commands: ingest, clean, tag, validate, export")
         sys.exit(1)
 
 
