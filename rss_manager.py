@@ -139,9 +139,22 @@ def ingest() -> None:
 
 
 def clean() -> None:
-    """Clean HTML from episode descriptions."""
+    """Clean episode descriptions using OpenAI."""
+    if not OPENAI_API_KEY:
+        print("Error: OPENAI_API_KEY not set in environment")
+        sys.exit(1)
+    
+    try:
+        import openai
+    except ImportError:
+        print("Error: openai package not installed. Run: pip install openai")
+        sys.exit(1)
+    
     state = load_state()
     episodes = state.get("episodes", {})
+    
+    # Initialize OpenAI client
+    client = openai.OpenAI(api_key=OPENAI_API_KEY)
     
     cleaned_count = 0
     for guid, episode in episodes.items():
@@ -149,19 +162,45 @@ def clean() -> None:
         if episode.get("cleaned_description") is not None:
             continue
         
-        # Simple HTML cleaning
-        text = episode.get("description", "")
-        # Remove HTML tags
-        text = re.sub('<[^<]+?>', '', text)
-        # Decode HTML entities
+        title = episode.get("title", "")
+        description = episode.get("description", "")
+        
+        # First do basic HTML cleaning
+        text = re.sub('<[^<]+?>', '', description)
         text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
         text = text.replace('&quot;', '"').replace('&#39;', "'")
-        # Clean whitespace
         text = ' '.join(text.split())
         
-        episode["cleaned_description"] = text
-        episode["cleaned_at"] = datetime.now().isoformat()
-        cleaned_count += 1
+        print(f"Cleaning: {title[:60]}...")
+        
+        try:
+            # Call OpenAI API for intelligent cleaning
+            response = client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": """You are a content cleaner for podcast episode descriptions. 
+                Remove all promotional content, advertisements, social media links, and production credits.
+                Keep only the historical content and episode summary.
+                Preserve the original writing style and tone.
+                Do not add any new content or modify the historical information.
+                Pay special attention to content that matches or relates to the episode title."""},
+                    {"role": "user", "content": f"Clean this episode description for episode titled '{title}':\n\n{text}"}
+                ],
+                temperature=0.0,
+                timeout=30
+            )
+            
+            cleaned_text = response.choices[0].message.content.strip()
+            episode["cleaned_description"] = cleaned_text
+            episode["cleaned_at"] = datetime.now().isoformat()
+            cleaned_count += 1
+            
+        except Exception as e:
+            print(f"Error cleaning episode: {e}")
+            # Fall back to HTML-cleaned version
+            episode["cleaned_description"] = text
+            episode["cleaned_at"] = datetime.now().isoformat()
+            cleaned_count += 1
     
     save_state(state)
     print(f"Cleaned {cleaned_count} episodes")
