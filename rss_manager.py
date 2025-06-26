@@ -389,6 +389,102 @@ def validate() -> None:
             print(f"  ... and {len(errors) - 10} more")
 
 
+def fix() -> None:
+    """Fix common validation errors in tags."""
+    state = load_state()
+    episodes = state.get("episodes", {})
+    
+    fixed_count = 0
+    fixes_made = []
+    
+    for guid, episode in episodes.items():
+        tags = episode.get("tags")
+        if tags is None:
+            continue
+        
+        title = episode.get("title", "")[:60]
+        episode_fixes = []
+        
+        # Fix missing required fields
+        if "episode_number" not in tags:
+            tags["episode_number"] = None
+            episode_fixes.append("added episode_number")
+        
+        for category in ["Format", "Theme", "Track"]:
+            if category not in tags:
+                if category == "Format":
+                    tags[category] = ["Standalone Episodes"]
+                    episode_fixes.append(f"added default {category}")
+                else:
+                    tags[category] = []
+                    episode_fixes.append(f"added empty {category}")
+        
+        # Fix Format issues
+        if "Format" in tags:
+            formats = tags["Format"]
+            if not isinstance(formats, list):
+                formats = [formats] if isinstance(formats, str) else ["Standalone Episodes"]
+                tags["Format"] = formats
+                episode_fixes.append("converted Format to list")
+            
+            # Fix RIHC Series
+            if "RIHC Series" in formats and "Series Episodes" not in formats:
+                formats.append("Series Episodes")
+                episode_fixes.append("added Series Episodes for RIHC")
+            
+            # Fix multiple formats (non-RIHC)
+            if "RIHC Series" not in formats and len(formats) > 1:
+                if "Series Episodes" in formats:
+                    tags["Format"] = ["Series Episodes"]
+                else:
+                    tags["Format"] = [formats[0]]
+                episode_fixes.append("fixed multiple Format tags")
+            
+            # Remove invalid Format tags
+            valid_formats = [f for f in formats if f in TAXONOMY["Format"]]
+            if len(valid_formats) != len(formats):
+                tags["Format"] = valid_formats if valid_formats else ["Standalone Episodes"]
+                episode_fixes.append("removed invalid Format tags")
+        
+        # Fix Theme and Track
+        for category in ["Theme", "Track"]:
+            if category in tags:
+                cat_tags = tags[category]
+                if not isinstance(cat_tags, list):
+                    tags[category] = [cat_tags] if isinstance(cat_tags, str) else []
+                    episode_fixes.append(f"converted {category} to list")
+                else:
+                    # Remove invalid tags
+                    valid_tags = [t for t in cat_tags if t in TAXONOMY[category]]
+                    if len(valid_tags) != len(cat_tags):
+                        tags[category] = valid_tags
+                        episode_fixes.append(f"removed invalid {category} tags")
+        
+        # Fix episode_number type
+        if "episode_number" in tags:
+            num = tags["episode_number"]
+            if isinstance(num, str) and num.isdigit():
+                tags["episode_number"] = int(num)
+                episode_fixes.append("converted episode_number to int")
+            elif num is not None and not isinstance(num, int):
+                tags["episode_number"] = None
+                episode_fixes.append("reset invalid episode_number")
+        
+        if episode_fixes:
+            fixes_made.append(f"{title}: {', '.join(episode_fixes)}")
+            fixed_count += 1
+    
+    save_state(state)
+    
+    print(f"Fixed {fixed_count} episodes")
+    if fixes_made:
+        print("\nFixes applied:")
+        for fix in fixes_made[:10]:
+            print(f"  - {fix}")
+        if len(fixes_made) > 10:
+            print(f"  ... and {len(fixes_made) - 10} more")
+
+
 def export() -> None:
     """Export tagged episodes to JSON."""
     state = load_state()
@@ -420,7 +516,7 @@ def export() -> None:
 def main():
     """Main entry point."""
     if len(sys.argv) != 2:
-        print("Usage: python rss_manager.py [ingest|clean|tag|validate|export]")
+        print("Usage: python rss_manager.py [ingest|clean|tag|validate|fix|export]")
         sys.exit(1)
     
     command = sys.argv[1]
@@ -433,11 +529,13 @@ def main():
         tag()
     elif command == "validate":
         validate()
+    elif command == "fix":
+        fix()
     elif command == "export":
         export()
     else:
         print(f"Unknown command: {command}")
-        print("Valid commands: ingest, clean, tag, validate, export")
+        print("Valid commands: ingest, clean, tag, validate, fix, export")
         sys.exit(1)
 
 

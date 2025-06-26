@@ -223,3 +223,7 @@ find /home/podcast -name "index_backup_*.tar.gz" -mtime +7 -delete
 - Maximum practical chunk size is ~2800 characters due to QR code version 40 limit
 - The large index (podcasts_2048_chunk) contains 21,861 chunks from 742 podcasts
 - This memvid approach replaces a previous vector database library, offering better performance and lower memory usage
+
+## Reminders
+
+- Remember that you need to activate the venv before running commands
