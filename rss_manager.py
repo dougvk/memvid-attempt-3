@@ -146,6 +146,7 @@ def clean() -> None:
     
     try:
         import openai
+        from concurrent.futures import ThreadPoolExecutor, as_completed
     except ImportError:
         print("Error: openai package not installed. Run: pip install openai")
         sys.exit(1)
@@ -156,13 +157,20 @@ def clean() -> None:
     # Initialize OpenAI client
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
     
-    cleaned_count = 0
-    for guid in episodes:
+    # Collect episodes to clean
+    to_clean = []
+    for guid, episode in episodes.items():
+        if episode.get("cleaned_description") is None:
+            to_clean.append(guid)
+    
+    if not to_clean:
+        print("No episodes to clean")
+        return
+    
+    print(f"Cleaning {len(to_clean)} episodes...")
+    
+    def clean_episode(guid):
         episode = episodes[guid]
-        # Skip if already cleaned
-        if episode.get("cleaned_description") is not None:
-            continue
-        
         title = episode.get("title", "")
         description = episode.get("description", "")
         
@@ -171,8 +179,6 @@ def clean() -> None:
         text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
         text = text.replace('&quot;', '"').replace('&#39;', "'")
         text = ' '.join(text.split())
-        
-        print(f"Cleaning: {title[:60]}...")
         
         try:
             # Call OpenAI API for intelligent cleaning
@@ -192,25 +198,40 @@ def clean() -> None:
             )
             
             cleaned_text = response.choices[0].message.content.strip()
-            episode["cleaned_description"] = cleaned_text
-            episode["cleaned_at"] = datetime.now().isoformat()
-            cleaned_count += 1
-            print(f"  ✓ Successfully cleaned ({len(cleaned_text)} chars)")
-            
-            # Save after each successful cleaning
-            state["episodes"] = episodes
-            save_state(state)
+            return (guid, cleaned_text, None)
             
         except Exception as e:
-            print(f"Error cleaning episode '{title[:30]}...': {e}")
-            # Fall back to HTML-cleaned version
-            episode["cleaned_description"] = text
-            episode["cleaned_at"] = datetime.now().isoformat()
-            cleaned_count += 1
+            return (guid, text, e)
+    
+    cleaned_count = 0
+    
+    # Process in batches of 10
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        for i in range(0, len(to_clean), 10):
+            batch = to_clean[i:i+10]
             
-            # Save even on fallback
+            # Submit batch
+            futures = {executor.submit(clean_episode, guid): guid for guid in batch}
+            
+            # Collect results
+            for future in as_completed(futures):
+                guid, cleaned_text, error = future.result()
+                episode = episodes[guid]
+                title = episode.get("title", "")[:60]
+                
+                if error:
+                    print(f"✗ {title}: {error}")
+                else:
+                    print(f"✓ {title}")
+                
+                episode["cleaned_description"] = cleaned_text
+                episode["cleaned_at"] = datetime.now().isoformat()
+                cleaned_count += 1
+            
+            # Save after each batch
             state["episodes"] = episodes
             save_state(state)
+            print(f"  Batch saved ({cleaned_count}/{len(to_clean)})")
     
     print(f"Total cleaned: {cleaned_count} episodes")
 
@@ -277,6 +298,7 @@ def tag() -> None:
     
     try:
         import openai
+        from concurrent.futures import ThreadPoolExecutor, as_completed
     except ImportError:
         print("Error: openai package not installed. Run: pip install openai")
         sys.exit(1)
@@ -287,18 +309,22 @@ def tag() -> None:
     # Initialize OpenAI client
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
     
-    tagged_count = 0
+    # Collect episodes to tag
+    to_tag = []
     for guid, episode in episodes.items():
-        # Skip if already tagged or not cleaned
-        if episode.get("tags") is not None:
-            continue
-        if episode.get("cleaned_description") is None:
-            continue
-        
+        if episode.get("tags") is None and episode.get("cleaned_description") is not None:
+            to_tag.append(guid)
+    
+    if not to_tag:
+        print("No episodes to tag")
+        return
+    
+    print(f"Tagging {len(to_tag)} episodes...")
+    
+    def tag_episode(guid):
+        episode = episodes[guid]
         title = episode.get("title", "")
         description = episode.get("cleaned_description", "")
-        
-        print(f"Tagging: {title[:60]}...")
         
         try:
             # Call OpenAI API
@@ -316,17 +342,40 @@ def tag() -> None:
             if content:
                 # Parse JSON response
                 tags = json.loads(content)
-                episode["tags"] = tags
-                episode["tagged_at"] = datetime.now().isoformat()
-                tagged_count += 1
-                
-                # Save after each successful tagging
-                state["episodes"] = episodes
-                save_state(state)
+                return (guid, tags, None)
+            return (guid, None, "Empty response")
                 
         except Exception as e:
-            print(f"Error tagging episode: {e}")
-            continue
+            return (guid, None, e)
+    
+    tagged_count = 0
+    
+    # Process in batches of 10
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        for i in range(0, len(to_tag), 10):
+            batch = to_tag[i:i+10]
+            
+            # Submit batch
+            futures = {executor.submit(tag_episode, guid): guid for guid in batch}
+            
+            # Collect results
+            for future in as_completed(futures):
+                guid, tags, error = future.result()
+                episode = episodes[guid]
+                title = episode.get("title", "")[:60]
+                
+                if error:
+                    print(f"✗ {title}: {error}")
+                else:
+                    print(f"✓ {title}")
+                    episode["tags"] = tags
+                    episode["tagged_at"] = datetime.now().isoformat()
+                    tagged_count += 1
+            
+            # Save after each batch
+            state["episodes"] = episodes
+            save_state(state)
+            print(f"  Batch saved ({tagged_count}/{len(to_tag)})")
     
     print(f"Total tagged: {tagged_count} episodes")
 
