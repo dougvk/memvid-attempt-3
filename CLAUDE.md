@@ -94,10 +94,11 @@ Transcribe podcast episodes using whisper.cpp:
 python3 transcribe.py
 ```
 
-- Continues from where previous transcriptions left off (742 completed)
+- Continues from where previous transcriptions left off (734 episodes completed, 742 files total)
 - Downloads MP3 → Transcribes with whisper.cpp → Saves to `transcripts/`
 - Progress tracked in `processed_transcripts.json`
 - Requires whisper.cpp installed at `/Users/douglasvonkohorn/whisper.cpp/`
+- 50 episodes remaining to transcribe
 
 ## Project Structure
 
