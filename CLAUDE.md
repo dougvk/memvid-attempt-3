@@ -109,6 +109,20 @@ python3 transcribe.py
 - `podcast_transcripts/` - Directory containing podcast transcript files (proprietary, not in git)
 - `output/` - Directory containing generated memvid indexes
 
+### Key JSON Files
+
+- **`state.json`** - Comprehensive metadata file used by RSS manager (784 episodes)
+  - Contains full episode metadata: title, descriptions, tags, URLs, timestamps
+  - Tracks RSS ingestion → cleaning → tagging workflow
+  - Each episode has ~10 fields including cleaned descriptions and taxonomy tags
+  - Object structure keyed by GUID for fast lookups
+
+- **`processed_transcripts.json`** - Simple transcription tracking file (784 entries)
+  - Minimal data: guid, title, and transcript_file location
+  - Used by transcribe.py to track which episodes are already transcribed
+  - Array structure for sequential processing
+  - Maps episodes to their transcript files in `transcripts/` directory
+
 ## Key Parameters
 
 - **Chunk Size**: 2048 characters (optimal for QR code limits and search quality)

@@ -31,3 +31,8 @@ Thumbs.db
 # Temp files
 *.tmp
 *.temp
+
+# JSON data files
+state.json
+processed_transcripts.json
+export_*.json
