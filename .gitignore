@@ -36,3 +36,6 @@ Thumbs.db
 state.json
 processed_transcripts.json
 export_*.json
+
+# Claude-specific files
+.claude/

@@ -15,10 +15,20 @@ WHISPER_CLI = "/Users/douglasvonkohorn/whisper.cpp/build/bin/whisper-cli"
 MODEL_PATH = "/Users/douglasvonkohorn/whisper.cpp/models/ggml-medium.en.bin"
 
 def load_episodes():
-    """Load unprocessed episodes from export file."""
+    """Load unprocessed episodes from export file, sorted chronologically."""
+    from datetime import datetime
+    
     # Load all episodes
     with open(EXPORT_FILE, 'r') as f:
         all_episodes = json.load(f)
+    
+    # Parse dates and sort chronologically
+    for episode in all_episodes:
+        episode['_parsed_date'] = datetime.strptime(
+            episode['published_date'], 
+            "%a, %d %b %Y %H:%M:%S %z"
+        )
+    all_episodes.sort(key=lambda x: x['_parsed_date'])
     
     # Load processed episodes
     try:
@@ -28,39 +38,29 @@ def load_episodes():
     except FileNotFoundError:
         processed_guids = set()
     
-    # Filter unprocessed episodes with audio URLs
+    # Filter unprocessed episodes with audio URLs (GUID-based only)
     unprocessed = []
-    for episode in all_episodes:
-        if episode['guid'] not in processed_guids and episode.get('audio_url'):
-            # Double-check that transcript doesn't already exist
-            guid = episode['guid']
-            title = episode['title']
-            clean_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-            
-            # Check for existing transcript file
-            possible_files = [
-                TRANSCRIPTS_DIR / f"{guid}_{clean_title}.txt",
-                # Also check for files that might have been created with different naming
-            ]
-            
-            transcript_exists = any(f.exists() for f in possible_files)
-            if not transcript_exists:
-                unprocessed.append(episode)
-            else:
-                print(f"Skipping {title[:50]}... (transcript already exists)")
+    episode_positions = {}  # Track chronological position
     
-    return unprocessed
+    for i, episode in enumerate(all_episodes, 1):
+        if episode['guid'] not in processed_guids and episode.get('audio_url'):
+            unprocessed.append(episode)
+            episode_positions[episode['guid']] = i  # Store chronological position
+    
+    return unprocessed, episode_positions
 
-def transcribe_episode(episode):
+def transcribe_episode(episode, episode_number):
     """Download and transcribe a single episode."""
     guid = episode['guid']
     title = episode['title']
     audio_url = episode['audio_url']
     
-    # Create clean filename
+    # Create filename for new episodes (743+)
     clean_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
+    transcript_name = f"{episode_number}_{clean_title[:100]}.txt"
+    
     mp3_file = Path(f"temp_{guid[:8]}.mp3")
-    txt_file = TRANSCRIPTS_DIR / f"{guid}_{clean_title}.txt"
+    txt_file = TRANSCRIPTS_DIR / transcript_name
     
     try:
         # Download MP3
@@ -69,12 +69,14 @@ def transcribe_episode(episode):
         
         # Transcribe with whisper
         print(f"Transcribing: {title[:60]}...")
+        # Remove .txt extension from transcript_name for whisper output
+        output_base = str(TRANSCRIPTS_DIR / transcript_name.replace('.txt', ''))
         cmd = [
             WHISPER_CLI,
             "-m", MODEL_PATH,
             "-f", str(mp3_file),
             "-otxt",
-            "-of", str(TRANSCRIPTS_DIR / f"{guid}_{clean_title}")
+            "-of", output_base
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -82,13 +84,13 @@ def transcribe_episode(episode):
         if result.returncode == 0 and txt_file.exists():
             print(f"✓ Completed: {title[:60]}")
             
-            # Update processed file
+            # Update processed file with new entry
             with open(PROCESSED_FILE, 'r') as f:
                 data = json.load(f)
             data['transcribed'].append({
                 "guid": guid,
                 "title": title,
-                "transcript_file": txt_file.name
+                "transcript_file": transcript_name
             })
             with open(PROCESSED_FILE, 'w') as f:
                 json.dump(data, f, indent=2)
@@ -120,7 +122,7 @@ def main():
         return
     
     # Load unprocessed episodes
-    episodes = load_episodes()
+    episodes, episode_positions = load_episodes()
     print(f"\nFound {len(episodes)} episodes to transcribe")
     
     if not episodes:
@@ -132,8 +134,10 @@ def main():
     failed = 0
     
     for i, episode in enumerate(episodes, 1):
-        print(f"\nProcessing {i}/{len(episodes)}:")
-        if transcribe_episode(episode):
+        # Use the chronological position from the full sorted list
+        episode_number = episode_positions[episode['guid']]
+        print(f"\nProcessing {i}/{len(episodes)} (Episode #{episode_number}):")
+        if transcribe_episode(episode, episode_number):
             success += 1
         else:
             failed += 1
