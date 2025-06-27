@@ -31,10 +31,10 @@ lsof -i:8000
 ### Indexing Podcasts
 ```bash
 # Index with 2048 character chunks (recommended)
-python3 file_chat.py --input-dir podcast_transcripts/ --chunk-size 2048 --overlap 307 --workers 8
+python3 file_chat.py --input-dir transcripts/ --chunk-size 2048 --overlap 307 --workers 8
 
 # Index with custom memory name
-python3 file_chat.py --input-dir podcast_transcripts/ --chunk-size 2048 --overlap 307 --workers 8 --memory-name podcasts_2048_chunk
+python3 file_chat.py --input-dir transcripts/ --chunk-size 2048 --overlap 307 --workers 8 --memory-name podcasts_2048_chunk
 ```
 
 ### Testing
@@ -106,7 +106,7 @@ python3 transcribe.py
 - `search_api.py` - FastAPI server for searching indexed content
 - `test_search_api.py` - Unit tests for the search API
 - `rss_manager.py` - Minimal RSS feed processor with OpenAI tagging
-- `podcast_transcripts/` - Directory containing podcast transcript files (proprietary, not in git)
+- `transcripts/` - Directory containing podcast transcript files (proprietary, not in git)
 - `output/` - Directory containing generated memvid indexes
 
 ### Key JSON Files
@@ -203,7 +203,7 @@ See DEPLOYMENT.md for full VPS setup instructions.
 1. **On your local machine:**
    ```bash
    # Re-index with new episodes
-   python3 file_chat.py --input-dir podcast_transcripts/ --chunk-size 2048 --overlap 307 --workers 8 --memory-name podcasts_2048_chunk
+   python3 file_chat.py --input-dir transcripts/ --chunk-size 2048 --overlap 307 --workers 8 --memory-name podcasts_2048_chunk
    
    # Upload to VPS
    ./upload.sh
