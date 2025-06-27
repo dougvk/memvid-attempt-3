@@ -644,6 +644,16 @@ Return ONLY a JSON object in this exact format:
         
         content = response.choices[0].message.content
         if content:
+            # Strip markdown code blocks if present
+            content = content.strip()
+            if content.startswith("```json"):
+                content = content[7:]  # Remove ```json
+            if content.startswith("```"):
+                content = content[3:]  # Remove ```
+            if content.endswith("```"):
+                content = content[:-3]  # Remove trailing ```
+            content = content.strip()
+            
             # Parse JSON response
             taxonomy = json.loads(content)
             
