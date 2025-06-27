@@ -594,19 +594,36 @@ def generate_taxonomy() -> None:
     
     print(f"Found {len(descriptions)} episodes with cleaned descriptions")
     
-    # Sample if > 50 episodes (to stay within token limits)
-    if len(descriptions) > 50:
-        descriptions = random.sample(descriptions, 50)
-        print(f"Sampling 50 episodes for taxonomy generation")
+    # Randomly shuffle to ensure diverse sampling
+    random.shuffle(descriptions)
+    
+    # Build episodes text while tracking tokens
+    episodes_text = ""
+    token_count = 0
+    episodes_included = 0
+    
+    # Reserve ~20k tokens for prompt template and response
+    MAX_CONTENT_TOKENS = 80000
+    
+    for ep in descriptions:
+        # Format episode
+        episode_entry = f"Title: {ep['title']}\nDescription: {ep['description']}\n\n"
+        
+        # Rough token estimate (1 token ≈ 4 characters)
+        entry_tokens = len(episode_entry) // 4
+        
+        # Check if adding this would exceed limit
+        if token_count + entry_tokens > MAX_CONTENT_TOKENS:
+            break
+            
+        episodes_text += episode_entry
+        token_count += entry_tokens
+        episodes_included += 1
+    
+    print(f"Including {episodes_included} episodes (~{token_count:,} tokens) in taxonomy generation")
     
     # Initialize OpenAI client
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
-    
-    # Create prompt for OpenAI
-    episodes_text = "\n\n".join([
-        f"Title: {ep['title']}\nDescription: {ep['description'][:500]}..."
-        for ep in descriptions[:30]  # Limit to avoid token issues
-    ])
     
     prompt = f"""Analyze these podcast episodes and create a taxonomy for categorizing them.
 
@@ -615,7 +632,7 @@ The taxonomy should have 3 categories:
 2. Theme: Main subject areas covered in the podcast (5-10 themes based on the content)
 3. Track: More specific topic tracks that episodes might belong to (10-20 tracks)
 
-Sample Episodes:
+PODCAST EPISODES ({episodes_included} of {len(descriptions)} total):
 {episodes_text}
 
 Based on these episodes, create a taxonomy that would allow proper categorization of all episodes.
