@@ -603,7 +603,7 @@ def generate_taxonomy() -> None:
     episodes_included = 0
     
     # Reserve ~20k tokens for prompt template and response
-    MAX_CONTENT_TOKENS = 80000
+    MAX_CONTENT_TOKENS = 180000
     
     for ep in descriptions:
         # Format episode
@@ -650,7 +650,7 @@ Return ONLY a JSON object in this exact format:
     try:
         # Call OpenAI with a better model for this task
         response = client.chat.completions.create(
-            model="gpt-4o",  # Use better model for taxonomy generation
+            model="gpt-4o-mini",  # Use better model for taxonomy generation
             messages=[
                 {"role": "system", "content": "You are an expert at creating taxonomies for podcast categorization. Analyze the content and create appropriate categories."},
                 {"role": "user", "content": prompt}
