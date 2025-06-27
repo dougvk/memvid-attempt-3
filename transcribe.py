@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 """Minimal podcast transcription using whisper.cpp"""
 
+import argparse
 import json
 import os
 import subprocess
 import urllib.request
 from pathlib import Path
 
-# Constants
-EXPORT_FILE = "export_20250626_122426.json"
-PROCESSED_FILE = "processed_transcripts.json"
-TRANSCRIPTS_DIR = Path("transcripts")
-WHISPER_CLI = "/Users/douglasvonkohorn/whisper.cpp/build/bin/whisper-cli"
-MODEL_PATH = "/Users/douglasvonkohorn/whisper.cpp/models/ggml-medium.en.bin"
+# Default constants
+DEFAULT_WHISPER_CLI = "/Users/douglasvonkohorn/whisper.cpp/build/bin/whisper-cli"
+DEFAULT_MODEL_PATH = "/Users/douglasvonkohorn/whisper.cpp/models/ggml-medium.en.bin"
 
-def load_episodes():
+def load_episodes(export_file, processed_file):
     """Load unprocessed episodes from export file, sorted chronologically."""
     from datetime import datetime
     
     # Load all episodes
-    with open(EXPORT_FILE, 'r') as f:
+    with open(export_file, 'r') as f:
         all_episodes = json.load(f)
     
     # Parse dates and sort chronologically
@@ -32,7 +30,7 @@ def load_episodes():
     
     # Load processed episodes
     try:
-        with open(PROCESSED_FILE, 'r') as f:
+        with open(processed_file, 'r') as f:
             data = json.load(f)
             processed_guids = {e['guid'] for e in data.get('transcribed', [])}
     except FileNotFoundError:
@@ -49,18 +47,18 @@ def load_episodes():
     
     return unprocessed, episode_positions
 
-def transcribe_episode(episode, episode_number):
+def transcribe_episode(episode, episode_number, transcripts_dir, processed_file, whisper_cli, model_path):
     """Download and transcribe a single episode."""
     guid = episode['guid']
     title = episode['title']
     audio_url = episode['audio_url']
     
-    # Create filename for new episodes (743+)
+    # Create filename for new episodes
     clean_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
     transcript_name = f"{episode_number}_{clean_title[:100]}.txt"
     
     mp3_file = Path(f"temp_{guid[:8]}.mp3")
-    txt_file = TRANSCRIPTS_DIR / transcript_name
+    txt_file = transcripts_dir / transcript_name
     
     try:
         # Download MP3
@@ -70,10 +68,10 @@ def transcribe_episode(episode, episode_number):
         # Transcribe with whisper
         print(f"Transcribing: {title[:60]}...")
         # Remove .txt extension from transcript_name for whisper output
-        output_base = str(TRANSCRIPTS_DIR / transcript_name.replace('.txt', ''))
+        output_base = str(transcripts_dir / transcript_name.replace('.txt', ''))
         cmd = [
-            WHISPER_CLI,
-            "-m", MODEL_PATH,
+            whisper_cli,
+            "-m", model_path,
             "-f", str(mp3_file),
             "-otxt",
             "-of", output_base
@@ -85,14 +83,14 @@ def transcribe_episode(episode, episode_number):
             print(f"✓ Completed: {title[:60]}")
             
             # Update processed file with new entry
-            with open(PROCESSED_FILE, 'r') as f:
+            with open(processed_file, 'r') as f:
                 data = json.load(f)
             data['transcribed'].append({
                 "guid": guid,
                 "title": title,
                 "transcript_file": transcript_name
             })
-            with open(PROCESSED_FILE, 'w') as f:
+            with open(processed_file, 'w') as f:
                 json.dump(data, f, indent=2)
             
             return True
@@ -113,17 +111,50 @@ def transcribe_episode(episode, episode_number):
 
 def main():
     """Main transcription loop."""
+    parser = argparse.ArgumentParser(description="Transcribe podcast episodes using whisper.cpp")
+    parser.add_argument('--export-file', required=True, help='Export JSON file from rss_manager')
+    parser.add_argument('--output-dir', default='transcripts', help='Output directory for transcripts')
+    parser.add_argument('--processed-file', help='Track processed episodes (auto-generated if not specified)')
+    parser.add_argument('--whisper-cli', default=DEFAULT_WHISPER_CLI, help='Path to whisper-cli executable')
+    parser.add_argument('--model-path', default=DEFAULT_MODEL_PATH, help='Path to whisper model file')
+    
+    args = parser.parse_args()
+    
+    # Set up paths
+    export_file = Path(args.export_file)
+    transcripts_dir = Path(args.output_dir)
+    
+    # Auto-generate processed file name if not specified
+    if args.processed_file:
+        processed_file = Path(args.processed_file)
+    else:
+        # Use output dir name as base
+        processed_file = Path(f"{transcripts_dir.name}_processed.json")
+    
     # Ensure directories exist
-    TRANSCRIPTS_DIR.mkdir(exist_ok=True)
+    transcripts_dir.mkdir(exist_ok=True)
     
     # Check whisper.cpp exists
-    if not Path(WHISPER_CLI).exists():
-        print(f"Error: whisper-cli not found at {WHISPER_CLI}")
+    if not Path(args.whisper_cli).exists():
+        print(f"Error: whisper-cli not found at {args.whisper_cli}")
         return
     
+    # Check export file exists
+    if not export_file.exists():
+        print(f"Error: Export file not found: {export_file}")
+        return
+    
+    # Initialize processed file if it doesn't exist
+    if not processed_file.exists():
+        with open(processed_file, 'w') as f:
+            json.dump({"transcribed": []}, f, indent=2)
+        print(f"Created new processed file: {processed_file}")
+    
     # Load unprocessed episodes
-    episodes, episode_positions = load_episodes()
+    episodes, episode_positions = load_episodes(export_file, processed_file)
     print(f"\nFound {len(episodes)} episodes to transcribe")
+    print(f"Output directory: {transcripts_dir}")
+    print(f"Tracking file: {processed_file}")
     
     if not episodes:
         print("All episodes have been transcribed!")
@@ -137,7 +168,8 @@ def main():
         # Use the chronological position from the full sorted list
         episode_number = episode_positions[episode['guid']]
         print(f"\nProcessing {i}/{len(episodes)} (Episode #{episode_number}):")
-        if transcribe_episode(episode, episode_number):
+        if transcribe_episode(episode, episode_number, transcripts_dir, processed_file, 
+                            args.whisper_cli, args.model_path):
             success += 1
         else:
             failed += 1

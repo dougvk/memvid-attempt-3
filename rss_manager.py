@@ -5,6 +5,7 @@ import os
 import sys
 import json
 import re
+import random
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -22,7 +23,8 @@ OPENAI_MODEL = "gpt-4o-mini"
 STATE_FILE = "state.json"
 
 # Taxonomy - exact copy from original codebase
-TAXONOMY = {
+# Default taxonomy for The Rest is History podcast
+DEFAULT_TAXONOMY = {
     "Format": [
         "Series Episodes",
         "Standalone Episodes",
@@ -65,6 +67,14 @@ TAXONOMY = {
         "Contemporary Issues Through History Track"
     ]
 }
+
+
+def load_taxonomy() -> Dict[str, List[str]]:
+    """Load taxonomy from file or use default."""
+    if os.path.exists("taxonomy.json"):
+        with open("taxonomy.json", 'r') as f:
+            return json.load(f)
+    return DEFAULT_TAXONOMY
 
 
 def load_state() -> Dict[str, Any]:
@@ -245,8 +255,9 @@ def clean() -> None:
 
 def construct_prompt(title: str, description: str) -> str:
     """Construct prompt for OpenAI - exact copy from original."""
+    taxonomy = load_taxonomy()
     taxonomy_text = "\nValid tags by category (an episode can have multiple tags from each category):\n"
-    for category, tags in TAXONOMY.items():
+    for category, tags in taxonomy.items():
         taxonomy_text += f"\n{category}:\n"
         taxonomy_text += "\n".join(f"- {tag}" for tag in tags) + "\n"
     
@@ -553,6 +564,109 @@ def fix() -> None:
             print(f"  ... and {len(fixes_made) - 10} more")
 
 
+def generate_taxonomy() -> None:
+    """Generate taxonomy for this podcast using OpenAI."""
+    if not OPENAI_API_KEY:
+        print("Error: OPENAI_API_KEY not set in environment")
+        sys.exit(1)
+    
+    try:
+        import openai
+    except ImportError:
+        print("Error: openai package not installed. Run: pip install openai")
+        sys.exit(1)
+    
+    state = load_state()
+    episodes = state.get("episodes", {})
+    
+    # Collect all cleaned descriptions
+    descriptions = []
+    for episode in episodes.values():
+        if desc := episode.get("cleaned_description"):
+            descriptions.append({
+                "title": episode.get("title", ""),
+                "description": desc
+            })
+    
+    if not descriptions:
+        print("Error: No cleaned descriptions found. Run 'clean' command first.")
+        sys.exit(1)
+    
+    print(f"Found {len(descriptions)} episodes with cleaned descriptions")
+    
+    # Sample if > 50 episodes (to stay within token limits)
+    if len(descriptions) > 50:
+        descriptions = random.sample(descriptions, 50)
+        print(f"Sampling 50 episodes for taxonomy generation")
+    
+    # Initialize OpenAI client
+    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+    
+    # Create prompt for OpenAI
+    episodes_text = "\n\n".join([
+        f"Title: {ep['title']}\nDescription: {ep['description'][:500]}..."
+        for ep in descriptions[:30]  # Limit to avoid token issues
+    ])
+    
+    prompt = f"""Analyze these podcast episodes and create a taxonomy for categorizing them.
+
+The taxonomy should have 3 categories:
+1. Format: How episodes are structured (e.g., Series Episodes, Standalone Episodes, Interview Episodes, Q&A Episodes, etc.)
+2. Theme: Main subject areas covered in the podcast (5-10 themes based on the content)
+3. Track: More specific topic tracks that episodes might belong to (10-20 tracks)
+
+Sample Episodes:
+{episodes_text}
+
+Based on these episodes, create a taxonomy that would allow proper categorization of all episodes.
+The taxonomy should be specific to this podcast's content and style.
+
+Return ONLY a JSON object in this exact format:
+{{
+    "Format": ["format1", "format2", ...],
+    "Theme": ["theme1", "theme2", ...],
+    "Track": ["track1", "track2", ...]
+}}"""
+    
+    print("Calling OpenAI to generate taxonomy...")
+    
+    try:
+        # Call OpenAI with a better model for this task
+        response = client.chat.completions.create(
+            model="gpt-4o",  # Use better model for taxonomy generation
+            messages=[
+                {"role": "system", "content": "You are an expert at creating taxonomies for podcast categorization. Analyze the content and create appropriate categories."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            timeout=60
+        )
+        
+        content = response.choices[0].message.content
+        if content:
+            # Parse JSON response
+            taxonomy = json.loads(content)
+            
+            # Save to file
+            with open("taxonomy.json", "w") as f:
+                json.dump(taxonomy, f, indent=2)
+            
+            print(f"✓ Taxonomy generated and saved to taxonomy.json")
+            print("\nGenerated Taxonomy:")
+            for category, tags in taxonomy.items():
+                print(f"\n{category}:")
+                for tag in tags:
+                    print(f"  - {tag}")
+        else:
+            print("Error: Empty response from OpenAI")
+            
+    except json.JSONDecodeError as e:
+        print(f"Error parsing OpenAI response as JSON: {e}")
+        print(f"Response: {content[:500]}...")
+    except Exception as e:
+        print(f"Error generating taxonomy: {e}")
+
+
 def export() -> None:
     """Export tagged episodes to JSON."""
     state = load_state()
@@ -585,7 +699,7 @@ def export() -> None:
 def main():
     """Main entry point."""
     if len(sys.argv) != 2:
-        print("Usage: python rss_manager.py [ingest|clean|tag|validate|fix|export]")
+        print("Usage: python rss_manager.py [ingest|clean|generate-taxonomy|tag|validate|fix|export]")
         sys.exit(1)
     
     command = sys.argv[1]
@@ -594,6 +708,8 @@ def main():
         ingest()
     elif command == "clean":
         clean()
+    elif command == "generate-taxonomy":
+        generate_taxonomy()
     elif command == "tag":
         tag()
     elif command == "validate":
@@ -604,7 +720,7 @@ def main():
         export()
     else:
         print(f"Unknown command: {command}")
-        print("Valid commands: ingest, clean, tag, validate, fix, export")
+        print("Valid commands: ingest, clean, generate-taxonomy, tag, validate, fix, export")
         sys.exit(1)
 
 
