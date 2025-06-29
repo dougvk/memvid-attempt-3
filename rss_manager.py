@@ -19,7 +19,7 @@ load_dotenv()
 # Configuration from environment
 RSS_FEED_URL = os.getenv("RSS_FEED_URL")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = "gpt-4o-mini"
+OPENAI_MODEL = "gpt-4.1-mini"
 STATE_FILE = "state.json"
 
 # Taxonomy - exact copy from original codebase
@@ -263,44 +263,50 @@ def construct_prompt(title: str, description: str) -> str:
     
     prompt = f"""You are a history podcast episode tagger. Your task is to analyze this episode and assign ALL relevant tags from the taxonomy below.
 
+IMPORTANT: All tags must be in the same language as the episode title and description. Do not translate tags to English.
+
 Episode Title: {title}
 Episode Description: {description}
 
 IMPORTANT RULES:
-1. An episode MUST be tagged as "Series Episodes" if ANY of these are true:
-   - The title contains "(Ep X)" or "(Part X)" where X is any number
-   - The title contains "Part" followed by a number
-   - The episode is part of a named series (e.g. "Young Churchill", "The French Revolution")
-2. An episode MUST be tagged as "RIHC Series" if the title starts with "RIHC:"
-   - RIHC episodes should ALWAYS have both "RIHC Series" and "Series Episodes" in their Format tags
-3. An episode can and should have multiple tags from each category if applicable
-4. If none of the above rules apply, tag it as "Standalone Episodes"
-5. For series episodes, you MUST extract the episode number:
-   - Look for patterns like "(Ep X)", "(Part X)", "Part X", where X is a number
-   - Include the number in your response as "episode_number"
-   - If no explicit number is found, use null for episode_number
+1. Select 1-3 Format tags based on the episode structure
+2. Select 1-3 Theme tags that best describe the main subjects
+3. Select 1-3 Track tags for specific topics covered
+4. If the episode is part of a numbered series, extract the episode number
+5. ONLY use tags that exist in the taxonomy below
 
 {taxonomy_text}
+
+CATEGORY GUIDELINES:
+- Format: The structure or type of the episode (e.g., discussion, interview, tasting)
+- Theme: Broad subject areas and general topics (what the episode is broadly about)
+- Track: Specific topics, grape varieties, or detailed subjects covered
+
+Be careful not to confuse Theme and Track - use the exact category each tag appears in above.
+
+WARNING: You MUST NOT create or invent any tags. If a grape variety, topic, or format is not listed in the taxonomy above, DO NOT use it. Only use tags that EXACTLY match those in the taxonomy.
+
+LANGUAGE: The taxonomy tags are in the same language as the podcast. Use these tags exactly as written - do not translate them to another language.
 
 IMPORTANT:
 1. You MUST ONLY use tags EXACTLY as they appear in the taxonomy above
 2. You MUST include Format, Theme, Track, and episode_number in your response
-3. Make sure themes and tracks are from their correct categories (don't use track names as themes)
-4. For Theme and Track:
+3. You MUST select at least 1 tag from each category (Format, Theme, Track) - never return empty arrays
+4. If no tags seem perfectly relevant, choose the closest/most general option from that category
+5. Make sure themes and tracks are from their correct categories (don't use track names as themes)
+6. For Theme and Track:
    - Apply ALL relevant themes and tracks that match the content
    - It's common for an episode to have 2-3 themes and 2-3 tracks
    - Make sure themes and tracks are from their correct categories (don't use track names as themes)
 
-Example responses:
+Example format:
+{{"Format": ["format_tag1"], "Theme": ["theme_tag1", "theme_tag2"], "Track": ["track_tag1", "track_tag2"], "episode_number": null}}
 
-For a RIHC episode about ancient Rome and military history:
-{{"Format": ["RIHC Series", "Series Episodes"], "Theme": ["Ancient & Classical Civilizations", "Military History & Battles"], "Track": ["Roman Track", "Military & Battles Track", "The RIHC Bonus Track"], "episode_number": null}}
-
-For a standalone episode about British history:
-{{"Format": ["Standalone Episodes"], "Theme": ["Regional & National Histories", "Modern Political History & Leadership"], "Track": ["British History Track", "Modern Political History Track"], "episode_number": null}}
-
-For part 3 of a series about Napoleon:
-{{"Format": ["Series Episodes"], "Theme": ["Modern Political History & Leadership", "Military History & Battles"], "Track": ["Modern Political History Track", "Military & Battles Track", "Historical Figures Track"], "episode_number": 3}}
+BEFORE OUTPUTTING: Double-check that:
+- Every Format tag exists in the Format category above
+- Every Theme tag exists in the Theme category above  
+- Every Track tag exists in the Track category above
+- You have NOT invented any new tags
 
 Return tags in this exact JSON format:
 {{"Format": ["tag1", "tag2"], "Theme": ["tag1", "tag2"], "Track": ["tag1", "tag2"], "episode_number": number_or_null}}
@@ -347,9 +353,9 @@ def tag() -> None:
         try:
             # Call OpenAI API
             response = client.chat.completions.create(
-                model=OPENAI_MODEL,
+                model="gpt-4.1-mini",
                 messages=[
-                    {"role": "system", "content": "You are a history podcast episode tagger."},
+                    {"role": "system", "content": "You are a podcast episode tagger. Always use tags exactly as they appear in the provided taxonomy."},
                     {"role": "user", "content": construct_prompt(title, description)}
                 ],
                 temperature=0.0,
@@ -398,10 +404,43 @@ def tag() -> None:
     print(f"Total tagged: {tagged_count} episodes")
 
 
+def validate_episode_tags(tags: Dict[str, Any], taxonomy: Dict[str, List[str]]) -> List[str]:
+    """Validate tags for a single episode. Returns list of errors."""
+    errors = []
+    
+    # Check required fields
+    required = {"Format", "Theme", "Track", "episode_number"}
+    missing = required - set(tags.keys())
+    if missing:
+        errors.append(f"Missing fields: {missing}")
+    
+    # Validate each category
+    for category in ["Format", "Theme", "Track"]:
+        if category in tags:
+            cat_tags = tags[category]
+            if not isinstance(cat_tags, list):
+                errors.append(f"{category} must be a list")
+            else:
+                invalid_tags = set(cat_tags) - set(taxonomy[category])
+                if invalid_tags:
+                    errors.append(f"Invalid {category} tags: {invalid_tags}")
+                if not cat_tags:  # Empty list
+                    errors.append(f"{category} cannot be empty")
+    
+    # Validate episode_number
+    if "episode_number" in tags:
+        num = tags["episode_number"]
+        if num is not None and not isinstance(num, int):
+            errors.append("episode_number must be int or null")
+    
+    return errors
+
+
 def validate() -> None:
     """Validate tags against taxonomy rules."""
     state = load_state()
     episodes = state.get("episodes", {})
+    taxonomy = load_taxonomy()
     
     valid_count = 0
     invalid_count = 0
@@ -413,44 +452,7 @@ def validate() -> None:
             continue
         
         title = episode.get("title", "")[:60]
-        episode_errors = []
-        
-        # Check required fields
-        required = {"Format", "Theme", "Track", "episode_number"}
-        missing = required - set(tags.keys())
-        if missing:
-            episode_errors.append(f"Missing fields: {missing}")
-        
-        # Validate Format
-        if "Format" in tags:
-            formats = tags["Format"]
-            if not isinstance(formats, list):
-                episode_errors.append("Format must be a list")
-            elif "RIHC Series" in formats and "Series Episodes" not in formats:
-                episode_errors.append("RIHC Series requires Series Episodes")
-            elif "RIHC Series" not in formats and len(formats) != 1:
-                episode_errors.append("Must have exactly one Format tag")
-            else:
-                invalid_formats = set(formats) - set(TAXONOMY["Format"])
-                if invalid_formats:
-                    episode_errors.append(f"Invalid Format tags: {invalid_formats}")
-        
-        # Validate Theme and Track
-        for category in ["Theme", "Track"]:
-            if category in tags:
-                cat_tags = tags[category]
-                if not isinstance(cat_tags, list):
-                    episode_errors.append(f"{category} must be a list")
-                else:
-                    invalid_tags = set(cat_tags) - set(TAXONOMY[category])
-                    if invalid_tags:
-                        episode_errors.append(f"Invalid {category} tags: {invalid_tags}")
-        
-        # Validate episode_number
-        if "episode_number" in tags:
-            num = tags["episode_number"]
-            if num is not None and not isinstance(num, int):
-                episode_errors.append("episode_number must be int or null")
+        episode_errors = validate_episode_tags(tags, taxonomy)
         
         if episode_errors:
             errors.append(f"{title}: {'; '.join(episode_errors)}")
@@ -472,6 +474,7 @@ def fix() -> None:
     """Fix common validation errors in tags."""
     state = load_state()
     episodes = state.get("episodes", {})
+    taxonomy = load_taxonomy()
     
     fixed_count = 0
     fixes_made = []
@@ -491,12 +494,8 @@ def fix() -> None:
         
         for category in ["Format", "Theme", "Track"]:
             if category not in tags:
-                if category == "Format":
-                    tags[category] = ["Standalone Episodes"]
-                    episode_fixes.append(f"added default {category}")
-                else:
-                    tags[category] = []
-                    episode_fixes.append(f"added empty {category}")
+                tags[category] = []
+                episode_fixes.append(f"added empty {category}")
         
         # Fix Format issues
         if "Format" in tags:
@@ -506,21 +505,10 @@ def fix() -> None:
                 tags["Format"] = formats
                 episode_fixes.append("converted Format to list")
             
-            # Fix RIHC Series
-            if "RIHC Series" in formats and "Series Episodes" not in formats:
-                formats.append("Series Episodes")
-                episode_fixes.append("added Series Episodes for RIHC")
-            
-            # Fix multiple formats (non-RIHC)
-            if "RIHC Series" not in formats and len(formats) > 1:
-                if "Series Episodes" in formats:
-                    tags["Format"] = ["Series Episodes"]
-                else:
-                    tags["Format"] = [formats[0]]
-                episode_fixes.append("fixed multiple Format tags")
+            # Multiple formats are now allowed - no fix needed
             
             # Remove invalid Format tags
-            valid_formats = [f for f in formats if f in TAXONOMY["Format"]]
+            valid_formats = [f for f in formats if f in taxonomy["Format"]]
             if len(valid_formats) != len(formats):
                 tags["Format"] = valid_formats if valid_formats else ["Standalone Episodes"]
                 episode_fixes.append("removed invalid Format tags")
@@ -534,7 +522,7 @@ def fix() -> None:
                     episode_fixes.append(f"converted {category} to list")
                 else:
                     # Remove invalid tags
-                    valid_tags = [t for t in cat_tags if t in TAXONOMY[category]]
+                    valid_tags = [t for t in cat_tags if t in taxonomy[category]]
                     if len(valid_tags) != len(cat_tags):
                         tags[category] = valid_tags
                         episode_fixes.append(f"removed invalid {category} tags")
@@ -548,6 +536,14 @@ def fix() -> None:
             elif num is not None and not isinstance(num, int):
                 tags["episode_number"] = None
                 episode_fixes.append("reset invalid episode_number")
+        
+        # After all fixes, validate and delete if still invalid
+        if tags:
+            validation_errors = validate_episode_tags(tags, taxonomy)
+            if validation_errors:
+                episode.pop("tags", None)
+                episode.pop("tagged_at", None)
+                episode_fixes = ["DELETED ALL TAGS - validation failed after fixes: " + "; ".join(validation_errors)]
         
         if episode_fixes:
             fixes_made.append(f"{title}: {', '.join(episode_fixes)}")
@@ -603,7 +599,7 @@ def generate_taxonomy() -> None:
     episodes_included = 0
     
     # Reserve ~20k tokens for prompt template and response
-    MAX_CONTENT_TOKENS = 180000
+    MAX_CONTENT_TOKENS = 400000
     
     for ep in descriptions:
         # Format episode
@@ -627,10 +623,14 @@ def generate_taxonomy() -> None:
     
     prompt = f"""Analyze these podcast episodes and create a taxonomy for categorizing them.
 
+IMPORTANT: Generate all category values in the same language as the podcast episodes below. If the podcast is in German, generate German category values. If it's in French, generate French values. Do NOT translate to English.
+
 The taxonomy should have 3 categories:
-1. Format: How episodes are structured (e.g., Series Episodes, Standalone Episodes, Interview Episodes, Q&A Episodes, etc.)
-2. Theme: Main subject areas covered in the podcast (5-10 themes based on the content)
-3. Track: More specific topic tracks that episodes might belong to (10-20 tracks)
+1. Format: How episodes are structured (generate format types in the podcast's language)
+2. Theme: Main subject areas covered in the podcast (5-10 themes in the podcast's language)
+3. Track: More specific topic tracks that episodes might belong to (10-20 tracks in the podcast's language)
+
+Keep the JSON keys (Format, Theme, Track) in English, but all values should be in the native language of the podcast content.
 
 PODCAST EPISODES ({episodes_included} of {len(descriptions)} total):
 {episodes_text}
@@ -650,9 +650,9 @@ Return ONLY a JSON object in this exact format:
     try:
         # Call OpenAI with a better model for this task
         response = client.chat.completions.create(
-            model="gpt-4o-mini",  # Use better model for taxonomy generation
+            model="gpt-4.1-mini",  # Use better model for taxonomy generation
             messages=[
-                {"role": "system", "content": "You are an expert at creating taxonomies for podcast categorization. Analyze the content and create appropriate categories."},
+                {"role": "system", "content": "You are an expert at creating taxonomies for podcast categorization. Always generate taxonomy values in the same language as the podcast content you analyze. Never translate the values to English unless the podcast itself is in English."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
