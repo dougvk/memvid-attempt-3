@@ -30,11 +30,14 @@ lsof -i:8000
 
 ### Indexing Podcasts
 ```bash
-# Index with 2048 character chunks (recommended)
-python3 file_chat.py --input-dir transcripts/ --chunk-size 2048 --overlap 307 --workers 8
+# Index single podcast (e.g., The Rest Is History)
+python3 file_chat.py --input-dir transcripts/ --chunk-size 2048 --overlap 307 --workers 8 --memory-name rest_is_history_2048
 
-# Index with custom memory name
-python3 file_chat.py --input-dir transcripts/ --chunk-size 2048 --overlap 307 --workers 8 --memory-name podcasts_2048_chunk
+# Index multiple podcasts together
+python3 file_chat.py --input-dir transcripts/ --chunk-size 2048 --overlap 307 --workers 8 --memory-name all_podcasts_2048
+
+# Index podcast-specific transcripts
+python3 file_chat.py --input-dir winenglish/transcripts/ --chunk-size 2048 --overlap 307 --workers 8 --memory-name wine_podcast_2048
 ```
 
 ### Testing
@@ -59,7 +62,7 @@ curl "http://localhost:8000/query?search=murder%20of%20richard%20ii&top_k=3"
 
 ## RSS Manager
 
-Minimal RSS feed manager for podcast episodes:
+Minimal RSS feed manager for podcast episodes with multi-podcast support:
 
 ```bash
 # Set environment variables (or create .env file)
@@ -69,59 +72,96 @@ export OPENAI_API_KEY="sk-your-key"
 # Activate virtual environment
 source memvid-env/bin/activate
 
-# Commands (run in order)
-python3 rss_manager.py ingest    # Fetch episodes from RSS feed
-python3 rss_manager.py clean     # Clean descriptions with OpenAI
-python3 rss_manager.py tag       # Tag episodes with taxonomy
-python3 rss_manager.py validate  # Check tags are valid
-python3 rss_manager.py fix       # Auto-fix validation errors
-python3 rss_manager.py export    # Export to JSON
+# For existing podcast (The Rest Is History)
+cd the-rest-is-history-pod
+python3 ../rss_manager.py ingest    # Fetch episodes from RSS feed
+python3 ../rss_manager.py clean     # Clean descriptions with OpenAI
+python3 ../rss_manager.py tag       # Tag episodes with taxonomy
+python3 ../rss_manager.py validate  # Check tags are valid
+python3 ../rss_manager.py fix       # Auto-fix validation errors
+python3 ../rss_manager.py export    # Export to JSON
+
+# For new podcasts
+mkdir new-podcast-name
+cd new-podcast-name
+python3 ../rss_manager.py generate-taxonomy  # Auto-generate taxonomy based on content
+python3 ../rss_manager.py ingest
+# ... continue with normal workflow
 ```
 
 - Uses OpenAI model: **gpt-4o-mini**
-- State stored in: `state.json`
+- State stored in: `state.json` (in each podcast directory)
+- Taxonomy stored in: `taxonomy.json` (auto-generated or custom)
 - Non-destructive: Re-running commands only processes new/unprocessed episodes
 - Progress saved after each episode (resilient to interruptions)
 - `clean` command uses OpenAI to remove promotional content
 - `fix` command automatically corrects validation errors
+- `generate-taxonomy` analyzes up to 180k tokens of content to create custom taxonomies
 
 ## Podcast Transcription
 
 Transcribe podcast episodes using whisper.cpp:
 
 ```bash
-# Uses export.json as source of episodes
-python3 transcribe.py
+# For existing podcast (The Rest Is History)
+cd the-rest-is-history-pod
+python3 ../transcribe.py --export-file export.json --output-dir ../transcripts/
+
+# For new podcasts
+cd new-podcast-name
+python3 ../transcribe.py --export-file export.json --output-dir transcripts/
 ```
 
-- Continues from where previous transcriptions left off (734 episodes completed, 742 files total)
-- Downloads MP3 → Transcribes with whisper.cpp → Saves to `transcripts/`
-- Progress tracked in `processed_transcripts.json`
+- Continues from where previous transcriptions left off
+- Downloads MP3 → Transcribes with whisper.cpp → Saves to specified output directory
+- Progress tracked in `processed_transcripts.json` (in each podcast directory)
 - Requires whisper.cpp installed at `/Users/douglasvonkohorn/whisper.cpp/`
-- 50 episodes remaining to transcribe
+- Supports custom export files and output directories via CLI arguments
 
 ## Project Structure
 
+### Main Files
 - `file_chat.py` - Script for creating memvid indexes from documents
 - `search_api.py` - FastAPI server for searching indexed content
 - `test_search_api.py` - Unit tests for the search API
 - `rss_manager.py` - Minimal RSS feed processor with OpenAI tagging
+- `transcribe.py` - Audio transcription with whisper.cpp
 - `transcripts/` - Directory containing podcast transcript files (proprietary, not in git)
 - `output/` - Directory containing generated memvid indexes
 
+### Podcast Directories
+Each podcast has its own directory containing:
+```
+podcast-name/
+├── state.json                  # RSS manager state and metadata
+├── taxonomy.json               # Custom taxonomy for the podcast
+├── export.json                 # Tagged episodes ready for indexing
+├── processed_transcripts.json  # Transcription progress tracking
+└── transcripts/               # (optional) Podcast-specific transcripts
+```
+
+Currently organized podcasts:
+- `the-rest-is-history-pod/` - The Rest Is History podcast (784 episodes)
+- `winenglish/` - Wine-related podcast
+
 ### Key JSON Files
 
-- **`state.json`** - Comprehensive metadata file used by RSS manager (784 episodes)
+- **`state.json`** - Comprehensive metadata file used by RSS manager
   - Contains full episode metadata: title, descriptions, tags, URLs, timestamps
   - Tracks RSS ingestion → cleaning → tagging workflow
   - Each episode has ~10 fields including cleaned descriptions and taxonomy tags
   - Object structure keyed by GUID for fast lookups
 
-- **`processed_transcripts.json`** - Simple transcription tracking file (784 entries)
+- **`taxonomy.json`** - Podcast-specific content categories
+  - Auto-generated by analyzing episode content with OpenAI
+  - Contains Format, Theme, and Track categorizations
+  - Customized for each podcast's content focus
+
+- **`processed_transcripts.json`** - Simple transcription tracking file
   - Minimal data: guid, title, and transcript_file location
   - Used by transcribe.py to track which episodes are already transcribed
   - Array structure for sequential processing
-  - Maps episodes to their transcript files in `transcripts/` directory
+  - Maps episodes to their transcript files
 
 ## Key Parameters
 
