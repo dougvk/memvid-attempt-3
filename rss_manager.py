@@ -621,22 +621,41 @@ def generate_taxonomy() -> None:
     # Initialize OpenAI client
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
     
-    prompt = f"""Analyze these podcast episodes and create a taxonomy for categorizing them.
+    prompt = f"""Analyze these podcast episodes to create a MINIMAL but COMPREHENSIVE taxonomy.
 
-IMPORTANT: Generate all category values in the same language as the podcast episodes below. If the podcast is in German, generate German category values. If it's in French, generate French values. Do NOT translate to English.
+IMPORTANT: Generate all category values in the same language as the podcast episodes.
 
-The taxonomy should have 3 categories:
-1. Format: How episodes are structured (generate format types in the podcast's language)
-2. Theme: Main subject areas covered in the podcast (5-10 themes in the podcast's language)
-3. Track: More specific topic tracks that episodes might belong to (10-20 tracks in the podcast's language)
+YOUR TASK:
+1. Read ALL episodes carefully
+2. Identify the core patterns and recurring topics
+3. Create the SMALLEST possible set of tags that can categorize EVERY episode
+4. Avoid overly specific tags - prefer broader categories that can cover multiple related topics
 
-Keep the JSON keys (Format, Theme, Track) in English, but all values should be in the native language of the podcast content.
+TAXONOMY REQUIREMENTS:
+- Format: 3-7 types (how episodes are structured - interviews, discussions, solo, series, etc.)
+- Theme: 5-8 broad subject areas that capture the main topics of this podcast
+- Track: 8-15 specific recurring topics or subtopics
+
+QUALITY CRITERIA:
+✓ Every episode MUST fit into at least one tag from each category
+✓ Prefer fewer, broader tags over many specific ones
+✓ Merge similar concepts into single tags
+✓ Ensure tags are mutually exclusive where possible
+✓ Tags should be reusable across many episodes
+✓ Include a general/catch-all option if needed for outlier episodes
+
+PROCESS:
+1. First, identify ALL topics and formats across the episodes
+2. Group similar topics together
+3. Create broader categories that encompass these groups
+4. Verify that EVERY episode can be tagged with your taxonomy
+5. Consolidate and remove redundant tags
+6. Ensure no episode would be left without appropriate tags
 
 PODCAST EPISODES ({episodes_included} of {len(descriptions)} total):
 {episodes_text}
 
-Based on these episodes, create a taxonomy that would allow proper categorization of all episodes.
-The taxonomy should be specific to this podcast's content and style.
+Based on this analysis, return a MINIMAL taxonomy where EVERY episode can be properly categorized.
 
 Return ONLY a JSON object in this exact format:
 {{
@@ -650,13 +669,12 @@ Return ONLY a JSON object in this exact format:
     try:
         # Call OpenAI with a better model for this task
         response = client.chat.completions.create(
-            model="gpt-4.1-mini",  # Use better model for taxonomy generation
+            model="o3-mini",  # Use thinking model for better taxonomy generation
             messages=[
-                {"role": "system", "content": "You are an expert at creating taxonomies for podcast categorization. Always generate taxonomy values in the same language as the podcast content you analyze. Never translate the values to English unless the podcast itself is in English."},
+                {"role": "system", "content": "You are an expert at creating minimal, efficient taxonomies for any type of podcast. Your goal is to create the smallest possible set of categories that can accurately classify 100% of the episodes. Think strategically about grouping and consolidation. Every episode must fit somewhere."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3,
-            timeout=60
+            timeout=300  # 5 minutes for thinking model
         )
         
         content = response.choices[0].message.content

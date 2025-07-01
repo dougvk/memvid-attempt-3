@@ -10,7 +10,7 @@ from pathlib import Path
 
 # Default constants
 DEFAULT_WHISPER_CLI = "/Users/douglasvonkohorn/whisper.cpp/build/bin/whisper-cli"
-DEFAULT_MODEL_PATH = "/Users/douglasvonkohorn/whisper.cpp/models/ggml-medium.en.bin"
+DEFAULT_MODEL_PATH = "/Users/douglasvonkohorn/whisper.cpp/models/ggml-medium.bin"
 
 def load_episodes(export_file, processed_file):
     """Load unprocessed episodes from export file, sorted chronologically."""
@@ -73,6 +73,7 @@ def transcribe_episode(episode, episode_number, transcripts_dir, processed_file,
             whisper_cli,
             "-m", model_path,
             "-f", str(mp3_file),
+            "-l", "auto",  # Force auto-detection
             "-otxt",
             "-of", output_base
         ]
