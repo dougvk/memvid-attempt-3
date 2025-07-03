@@ -7,6 +7,9 @@ import os
 import subprocess
 import urllib.request
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Default constants
 DEFAULT_WHISPER_CLI = "/Users/douglasvonkohorn/whisper.cpp/build/bin/whisper-cli"
@@ -47,7 +50,7 @@ def load_episodes(export_file, processed_file):
     
     return unprocessed, episode_positions
 
-def transcribe_episode(episode, episode_number, transcripts_dir, processed_file, whisper_cli, model_path):
+def transcribe_episode(episode, episode_number, transcripts_dir, processed_file, whisper_cli, model_path, args):
     """Download and transcribe a single episode."""
     guid = episode['guid']
     title = episode['title']
@@ -64,23 +67,132 @@ def transcribe_episode(episode, episode_number, transcripts_dir, processed_file,
         # Download MP3
         print(f"Downloading: {title[:60]}...")
         urllib.request.urlretrieve(audio_url, mp3_file)
+        original_size = mp3_file.stat().st_size
+        print(f"  Downloaded: {original_size/1024/1024:.1f}MB")
         
-        # Transcribe with whisper
+        # Pre-process: silence removal + 2x speed + mono, 16kHz, 64kbps
+        print(f"Processing: {title[:60]}...")
+        print(f"  Applying: silence removal + 2x speed + mono 16kHz 64kbps")
+        processed = mp3_file.with_suffix('.processed.mp3')
+        result = subprocess.run([
+            'ffmpeg', '-i', str(mp3_file),
+            '-map', '0:a',  # Only process audio streams (ignore embedded artwork)
+            '-af', (
+                'silenceremove=start_periods=1:start_duration=0:start_threshold=-50dB:'
+                'stop_periods=-1:stop_duration=0.02:stop_threshold=-50dB,'
+                'apad=pad_dur=0.02,'
+                'atempo=2.0'
+            ),
+            '-ac', '1', '-ar', '16000',
+            '-c:a', 'libmp3lame', '-b:a', '64k',
+            '-y', str(processed)
+        ], capture_output=True)
+        if result.returncode != 0:
+            raise Exception(f"ffmpeg preprocessing failed: {result.stderr.decode()[:500]}")
+        
+        processed_size = processed.stat().st_size
+        reduction = (1 - processed_size/original_size) * 100
+        print(f"  Processed: {processed_size/1024/1024:.1f}MB ({reduction:.0f}% reduction)")
+        
+        # Transcribe
         print(f"Transcribing: {title[:60]}...")
-        # Remove .txt extension from transcript_name for whisper output
-        output_base = str(transcripts_dir / transcript_name.replace('.txt', ''))
-        cmd = [
-            whisper_cli,
-            "-m", model_path,
-            "-f", str(mp3_file),
-            "-l", "auto",  # Force auto-detection
-            "-otxt",
-            "-of", output_base
-        ]
         
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        if args.use_openai_transcribe:
+            # OpenAI path
+            try:
+                import openai
+                import tiktoken
+                client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                
+                # Check processed file size
+                file_size = processed.stat().st_size
+                if file_size > 24 * 1024 * 1024:  # 24MB threshold
+                    print(f"  File still large ({file_size/1024/1024:.1f}MB), chunking...")
+                    
+                    # Get bitrate and calculate safe segment duration
+                    probe = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 
+                                          'format=bit_rate', '-of', 'csv=p=0', str(processed)],
+                                         capture_output=True, text=True, check=True)
+                    bitrate = int(probe.stdout.strip())
+                    segment_duration = (24 * 1024 * 1024 * 8) // bitrate - 2  # 24MB in bits, minus 2s margin
+                    
+                    # Segment without overlap (we'll handle context via prompts)
+                    chunk_pattern = str(processed.with_suffix('')) + '_%03d.mp3'
+                    result = subprocess.run([
+                        'ffmpeg', '-i', str(processed), '-f', 'segment',
+                        '-segment_time', str(segment_duration),
+                        '-reset_timestamps', '1', '-c', 'copy', chunk_pattern
+                    ], capture_output=True)
+                    if result.returncode != 0:
+                        raise Exception(f"ffmpeg segmentation failed: {result.stderr.decode()[:500]}")
+                    
+                    # Transcribe chunks with context passing
+                    chunks = sorted(processed.parent.glob(f"{processed.stem}_*.mp3"))
+                    print(f"  Created {len(chunks)} chunks (~{segment_duration}s each)")
+                    transcriptions = []
+                    last_tail = ""
+                    
+                    # Initialize tokenizer for whisper model (uses gpt2 encoding)
+                    enc = tiktoken.get_encoding("gpt2")
+                    
+                    for i, chunk in enumerate(chunks, 1):
+                        print(f"  Transcribing chunk {i}/{len(chunks)}...")
+                        try:
+                            with open(chunk, 'rb') as f:
+                                # Pass last 200 tokens as prompt (not characters)
+                                if last_tail:
+                                    tail_tokens = enc.encode(last_tail)[-200:]
+                                    prompt = enc.decode(tail_tokens)
+                                else:
+                                    prompt = ""
+                                
+                                response = client.audio.transcriptions.create(
+                                    model="whisper-1",
+                                    file=f,
+                                    prompt=prompt
+                                )
+                            transcriptions.append(response.text)
+                            last_tail = response.text  # Save for next chunk's prompt
+                        finally:
+                            chunk.unlink()
+                    
+                    # Write successful transcription
+                    txt_file.write_text(' '.join(transcriptions))
+                    transcription_success = True
+                else:
+                    # File is small enough, process normally
+                    print(f"  Using OpenAI Whisper API directly")
+                    with open(processed, 'rb') as audio_file:
+                        response = client.audio.transcriptions.create(
+                            model="whisper-1",
+                            file=audio_file
+                        )
+                    txt_file.write_text(response.text)
+                    transcription_success = True
+                    
+            except Exception as e:
+                print(f"  OpenAI Error: {str(e)[:200]}")
+                transcription_success = False
+        else:
+            # Local whisper.cpp code  
+            print(f"  Using local whisper.cpp")
+            print(f"  Model: {model_path.split('/')[-1]}")
+            output_base = str(transcripts_dir / transcript_name.replace('.txt', ''))
+            cmd = [
+                whisper_cli,
+                "-m", model_path,
+                "-f", str(processed),  # Use preprocessed file
+                "-l", "auto",  # Force auto-detection
+                "-otxt",
+                "-of", output_base
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            transcription_success = result.returncode == 0 and txt_file.exists()
+            if not transcription_success and result.stderr:
+                print(f"  Error: {result.stderr[:200]}")
         
-        if result.returncode == 0 and txt_file.exists():
+        if transcription_success:
             print(f"✓ Completed: {title[:60]}")
             
             # Update processed file with new entry
@@ -97,8 +209,6 @@ def transcribe_episode(episode, episode_number, transcripts_dir, processed_file,
             return True
         else:
             print(f"✗ Failed: {title[:60]}")
-            if result.stderr:
-                print(f"  Error: {result.stderr[:200]}")
             return False
             
     except Exception as e:
@@ -106,9 +216,11 @@ def transcribe_episode(episode, episode_number, transcripts_dir, processed_file,
         return False
     
     finally:
-        # Clean up MP3
+        # Clean up files
         if mp3_file.exists():
             mp3_file.unlink()
+        if 'processed' in locals() and processed.exists():
+            processed.unlink()
 
 def main():
     """Main transcription loop."""
@@ -118,6 +230,7 @@ def main():
     parser.add_argument('--processed-file', help='Track processed episodes (auto-generated if not specified)')
     parser.add_argument('--whisper-cli', default=DEFAULT_WHISPER_CLI, help='Path to whisper-cli executable')
     parser.add_argument('--model-path', default=DEFAULT_MODEL_PATH, help='Path to whisper model file')
+    parser.add_argument('--use-openai-transcribe', action='store_true', help='Use OpenAI API instead of local whisper')
     
     args = parser.parse_args()
     
@@ -135,10 +248,15 @@ def main():
     # Ensure directories exist
     transcripts_dir.mkdir(exist_ok=True)
     
-    # Check whisper.cpp exists
-    if not Path(args.whisper_cli).exists():
-        print(f"Error: whisper-cli not found at {args.whisper_cli}")
-        return
+    # Check requirements based on mode
+    if args.use_openai_transcribe:
+        if not os.getenv("OPENAI_API_KEY"):
+            print("Error: OPENAI_API_KEY not set in environment")
+            return
+    else:
+        if not Path(args.whisper_cli).exists():
+            print(f"Error: whisper-cli not found at {args.whisper_cli}")
+            return
     
     # Check export file exists
     if not export_file.exists():
@@ -170,7 +288,7 @@ def main():
         episode_number = episode_positions[episode['guid']]
         print(f"\nProcessing {i}/{len(episodes)} (Episode #{episode_number}):")
         if transcribe_episode(episode, episode_number, transcripts_dir, processed_file, 
-                            args.whisper_cli, args.model_path):
+                            args.whisper_cli, args.model_path, args):
             success += 1
         else:
             failed += 1

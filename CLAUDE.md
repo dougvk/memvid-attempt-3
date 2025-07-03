@@ -100,22 +100,32 @@ python3 ../rss_manager.py ingest
 
 ## Podcast Transcription
 
-Transcribe podcast episodes using whisper.cpp:
+Transcribe podcast episodes using whisper.cpp or OpenAI API:
 
 ```bash
-# For existing podcast (The Rest Is History)
+# Using local whisper.cpp (default)
 cd the-rest-is-history-pod
 python3 ../transcribe.py --export-file export.json --output-dir ../transcripts/
 
-# For new podcasts
+# Using OpenAI Whisper API (requires OPENAI_API_KEY in .env)
 cd new-podcast-name
-python3 ../transcribe.py --export-file export.json --output-dir transcripts/
+python3 ../transcribe.py --export-file export.json --output-dir transcripts/ --use-openai-transcribe
+
+# Note: Files >25MB are automatically pre-processed with silence removal + 2x speed to reduce API costs
 ```
 
 - Continues from where previous transcriptions left off
-- Downloads MP3 → Transcribes with whisper.cpp → Saves to specified output directory
+- Downloads MP3 → Transcribes → Saves to specified output directory
 - Progress tracked in `processed_transcripts.json` (in each podcast directory)
-- Requires whisper.cpp installed at `/Users/douglasvonkohorn/whisper.cpp/`
+- Local mode requires whisper.cpp installed at `/Users/douglasvonkohorn/whisper.cpp/`
+- OpenAI mode requires `OPENAI_API_KEY` environment variable
+- Both modes produce identical output format (.txt files)
+- Both modes pre-process audio with silence removal + 2x speed + mono 16kHz 64kbps
+  - Reduces transcription time by ~60-70%
+  - Saves ~30% on OpenAI API costs
+- OpenAI mode handles large files (>25MB) by chunking:
+  - Calculates optimal chunk size based on bitrate
+  - Maintains context between chunks using token-based prompts
 - Supports custom export files and output directories via CLI arguments
 
 ## Project Structure
