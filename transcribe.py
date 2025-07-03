@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal podcast transcription using whisper.cpp"""
+"""Minimal podcast transcription using faster-whisper INT8 models"""
 
 import argparse
 import json
@@ -8,12 +8,12 @@ import subprocess
 import urllib.request
 from pathlib import Path
 from dotenv import load_dotenv
+from faster_whisper import WhisperModel
 
 load_dotenv()
 
-# Default constants
-DEFAULT_WHISPER_CLI = "/Users/douglasvonkohorn/whisper.cpp/build/bin/whisper-cli"
-DEFAULT_MODEL_PATH = "/Users/douglasvonkohorn/whisper.cpp/models/ggml-medium.bin"
+# Default faster-whisper models
+DEFAULT_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models/whisper-small-int8")
 
 def load_episodes(export_file, processed_file):
     """Load unprocessed episodes from export file, sorted chronologically."""
@@ -50,7 +50,7 @@ def load_episodes(export_file, processed_file):
     
     return unprocessed, episode_positions
 
-def transcribe_episode(episode, episode_number, transcripts_dir, processed_file, whisper_cli, model_path, args):
+def transcribe_episode(episode, episode_number, transcripts_dir, processed_file, model_path, args):
     """Download and transcribe a single episode."""
     guid = episode['guid']
     title = episode['title']
@@ -174,23 +174,51 @@ def transcribe_episode(episode, episode_number, transcripts_dir, processed_file,
                 print(f"  OpenAI Error: {str(e)[:200]}")
                 transcription_success = False
         else:
-            # Local whisper.cpp code  
-            print(f"  Using local whisper.cpp")
-            print(f"  Model: {model_path.split('/')[-1]}")
-            output_base = str(transcripts_dir / transcript_name.replace('.txt', ''))
-            cmd = [
-                whisper_cli,
-                "-m", model_path,
-                "-f", str(processed),  # Use preprocessed file
-                "-l", "auto",  # Force auto-detection
-                "-otxt",
-                "-of", output_base
-            ]
-            
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            transcription_success = result.returncode == 0 and txt_file.exists()
-            if not transcription_success and result.stderr:
-                print(f"  Error: {result.stderr[:200]}")
+            # Default: Use faster-whisper with INT8 models
+            try:
+                import time
+                start_time = time.time()
+                
+                # Load model (cached after first load)
+                if not hasattr(transcribe_episode, '_fw_model'):
+                    print(f"  Loading faster-whisper INT8 models...")
+                    transcribe_episode._fw_model = WhisperModel(
+                        model_path,
+                        device="cpu",
+                        compute_type="int8",
+                        cpu_threads=args.cpu_threads
+                    )
+                
+                model = transcribe_episode._fw_model
+                print(f"  Using faster-whisper small INT8")
+                
+                # Transcribe with optimizations
+                segments, info = model.transcribe(
+                    str(processed),
+                    language=None,  # Auto-detect language
+                    beam_size=1,  # Optimized for small model
+                    vad_filter=True,
+                    word_timestamps=False
+                )
+                
+                # Collect text
+                full_text = []
+                for segment in segments:
+                    full_text.append(segment.text)
+                
+                # Write transcription
+                txt_file.write_text(' '.join(full_text))
+                transcription_success = True
+                
+                # Report speed
+                elapsed = time.time() - start_time
+                if hasattr(info, 'duration'):
+                    speed = info.duration / elapsed
+                    print(f"  Speed: {speed:.1f}x real-time ({elapsed:.0f}s for {info.duration:.0f}s audio)")
+                    
+            except Exception as e:
+                print(f"  Faster-whisper Error: {str(e)[:200]}")
+                transcription_success = False
         
         if transcription_success:
             print(f"✓ Completed: {title[:60]}")
@@ -228,9 +256,9 @@ def main():
     parser.add_argument('--export-file', required=True, help='Export JSON file from rss_manager')
     parser.add_argument('--output-dir', default='transcripts', help='Output directory for transcripts')
     parser.add_argument('--processed-file', help='Track processed episodes (auto-generated if not specified)')
-    parser.add_argument('--whisper-cli', default=DEFAULT_WHISPER_CLI, help='Path to whisper-cli executable')
-    parser.add_argument('--model-path', default=DEFAULT_MODEL_PATH, help='Path to whisper model file')
-    parser.add_argument('--use-openai-transcribe', action='store_true', help='Use OpenAI API instead of local whisper')
+    parser.add_argument('--model-path', default=DEFAULT_MODEL_PATH, help='Path to faster-whisper model directory')
+    parser.add_argument('--use-openai-transcribe', action='store_true', help='Use OpenAI API instead of local faster-whisper')
+    parser.add_argument('--cpu-threads', type=int, default=8, help='Number of CPU threads for transcription (default: 8)')
     
     args = parser.parse_args()
     
@@ -254,8 +282,11 @@ def main():
             print("Error: OPENAI_API_KEY not set in environment")
             return
     else:
-        if not Path(args.whisper_cli).exists():
-            print(f"Error: whisper-cli not found at {args.whisper_cli}")
+        # Check if models exist
+        if not Path(args.model_path).exists() or not Path(f"{args.model_path}/model.bin").exists():
+            print(f"Error: faster-whisper models not found at {args.model_path}")
+            print("Please download them first:")
+            print("huggingface-cli download ctranslate2-4you/whisper-large-v3-ct2-int8_float16 --local-dir models/whisper-large-v3-int8")
             return
     
     # Check export file exists
@@ -288,7 +319,7 @@ def main():
         episode_number = episode_positions[episode['guid']]
         print(f"\nProcessing {i}/{len(episodes)} (Episode #{episode_number}):")
         if transcribe_episode(episode, episode_number, transcripts_dir, processed_file, 
-                            args.whisper_cli, args.model_path, args):
+                            args.model_path, args):
             success += 1
         else:
             failed += 1

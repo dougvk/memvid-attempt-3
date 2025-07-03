@@ -100,24 +100,34 @@ python3 ../rss_manager.py ingest
 
 ## Podcast Transcription
 
-Transcribe podcast episodes using whisper.cpp or OpenAI API:
+Transcribe podcast episodes using faster-whisper INT8 models or OpenAI API:
 
 ```bash
-# Using local whisper.cpp (default)
+# Using local faster-whisper INT8 (default) - ~7x real-time with small model
 cd the-rest-is-history-pod
 python3 ../transcribe.py --export-file export.json --output-dir ../transcripts/
+
+# Optimize CPU threads for your system (default: 8)
+python3 ../transcribe.py --export-file export.json --output-dir ../transcripts/ --cpu-threads 6  # For M1
+python3 ../transcribe.py --export-file export.json --output-dir ../transcripts/ --cpu-threads 10 # For M1 Pro/Max
 
 # Using OpenAI Whisper API (requires OPENAI_API_KEY in .env)
 cd new-podcast-name
 python3 ../transcribe.py --export-file export.json --output-dir transcripts/ --use-openai-transcribe
 
-# Note: Files >25MB are automatically pre-processed with silence removal + 2x speed to reduce API costs
+# Note: All modes pre-process with silence removal + 2x speed to reduce transcription time
 ```
 
 - Continues from where previous transcriptions left off
 - Downloads MP3 → Transcribes → Saves to specified output directory
 - Progress tracked in `processed_transcripts.json` (in each podcast directory)
-- Local mode requires whisper.cpp installed at `/Users/douglasvonkohorn/whisper.cpp/`
+- **Local mode now uses faster-whisper with INT8 quantized models:**
+  - Whisper small INT8 model (1.1GB) for ~7x real-time speed on M1
+  - CPU-optimized with configurable threads (--cpu-threads flag)
+  - Auto-detects language (no longer forced to English)
+  - Optimized beam_size=1 for small model performance
+  - First-time model loading takes ~10s, then cached
+  - Models must be downloaded first (see setup below)
 - OpenAI mode requires `OPENAI_API_KEY` environment variable
 - Both modes produce identical output format (.txt files)
 - Both modes pre-process audio with silence removal + 2x speed + mono 16kHz 64kbps
@@ -128,6 +138,23 @@ python3 ../transcribe.py --export-file export.json --output-dir transcripts/ --u
   - Maintains context between chunks using token-based prompts
 - Supports custom export files and output directories via CLI arguments
 
+### Faster-Whisper Setup
+
+```bash
+# One-time setup: Download INT8 models
+source memvid-env/bin/activate
+huggingface-cli download ctranslate2-4you/whisper-small-ct2-int8_float16 --local-dir models/whisper-small-int8
+
+# Models are stored in models/ directory (1.1GB total)
+# After download, transcription will use these automatically
+```
+
+### Performance Notes
+
+- **Small model**: ~7x real-time, 1.1GB RAM, 7-8% WER
+- **Large-v3 model**: ~1.4x real-time, 3.6GB RAM, 3-4% WER
+- Use small for speed, large-v3 for accuracy
+
 ## Project Structure
 
 ### Main Files
@@ -135,7 +162,7 @@ python3 ../transcribe.py --export-file export.json --output-dir transcripts/ --u
 - `search_api.py` - FastAPI server for searching indexed content
 - `test_search_api.py` - Unit tests for the search API
 - `rss_manager.py` - Minimal RSS feed processor with OpenAI tagging
-- `transcribe.py` - Audio transcription with whisper.cpp
+- `transcribe.py` - Audio transcription with faster-whisper INT8 models
 - `transcripts/` - Directory containing podcast transcript files (proprietary, not in git)
 - `output/` - Directory containing generated memvid indexes
 

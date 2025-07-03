@@ -7,6 +7,7 @@ venv/
 podcast_transcripts/
 transcripts/
 podcasts/
+models/
 
 # Output files
 output/
